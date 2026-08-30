@@ -57,4 +57,4 @@ async def razorpay_webhook(
     result = ingest_webhook(session, event_id=x_razorpay_event_id, raw_body=body)
     session.commit()
 
-    return {"status": "ok", "outcome": result.outcome}
+    return {"status": "ok", "outcome": result.outcome, "category": result.category}

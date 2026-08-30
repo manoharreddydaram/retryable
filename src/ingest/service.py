@@ -1,4 +1,4 @@
-"""Orchestrates one webhook delivery end to end: claim, decide, persist, record.
+"""Orchestrates one webhook delivery end to end: claim, decide, classify, persist, record.
 
 The order_id is fully serialised with a Postgres advisory lock before its
 current status is read. Razorpay's own retry policy (resend on anything
@@ -10,6 +10,10 @@ close, not a theoretical one.
 Event dedup is a single atomic INSERT ... ON CONFLICT DO NOTHING: whichever
 request claims the event_id first proceeds, the other is told it lost the
 race and stops immediately without touching payment state twice.
+
+Every payment.failed that is actually applied gets run through the Stage 3
+deterministic classifier -- no AI, a lookup -- and the category is stored on
+the Payment row and in the ledger entry alongside the raw error fields.
 """
 
 from dataclasses import dataclass
@@ -19,6 +23,7 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from src.classify.rules import ClassificationResult, classify
 from src.ingest.models import Payment, WebhookEvent
 from src.ingest.schemas import RazorpayPaymentEntity, RazorpayWebhookEnvelope
 from src.ingest.state_machine import PaymentStatus, decide_transition
@@ -34,6 +39,7 @@ _SUPPORTED_EVENTS: dict[str, PaymentStatus] = {
 class IngestResult:
     outcome: str
     order_id: str | None
+    category: str | None = None
 
 
 def ingest_webhook(session: Session, *, event_id: str, raw_body: dict) -> IngestResult:
@@ -44,6 +50,7 @@ def ingest_webhook(session: Session, *, event_id: str, raw_body: dict) -> Ingest
     subject_id: str | None = None
     payment_id: str | None = None
     reason: str | None = None
+    classification: ClassificationResult | None = None
 
     if incoming_status is None or payment_entity is None:
         outcome = "ignored_unsupported_event"
@@ -61,6 +68,9 @@ def ingest_webhook(session: Session, *, event_id: str, raw_body: dict) -> Ingest
         else:
             outcome = "applied"
 
+        if incoming_status == PaymentStatus.FAILED and outcome != "rejected_backward_transition":
+            classification = classify(payment_entity.error_reason, payment_entity.error_code)
+
     claimed = _claim_event(
         session, event_id, envelope.event, payment_id, subject_id, outcome, raw_body
     )
@@ -77,7 +87,16 @@ def ingest_webhook(session: Session, *, event_id: str, raw_body: dict) -> Ingest
         and payment_entity is not None
         and outcome in ("applied", "recovered")
     ):
-        _upsert_payment(session, subject_id, incoming_status, payment_entity, raw_body)
+        _upsert_payment(
+            session, subject_id, incoming_status, payment_entity, raw_body, classification
+        )
+
+    ledger_extra = None
+    if classification is not None:
+        ledger_extra = {
+            "category": classification.category.value,
+            "recoverable": classification.profile.recoverable,
+        }
 
     _append_ledger(
         session,
@@ -86,8 +105,13 @@ def ingest_webhook(session: Session, *, event_id: str, raw_body: dict) -> Ingest
         outcome,
         raw_body,
         reason=reason if outcome == "rejected_backward_transition" else None,
+        extra=ledger_extra,
     )
-    return IngestResult(outcome=outcome, order_id=subject_id)
+    return IngestResult(
+        outcome=outcome,
+        order_id=subject_id,
+        category=classification.category.value if classification else None,
+    )
 
 
 def _lock_subject(session: Session, subject_id: str) -> None:
@@ -136,9 +160,15 @@ def _upsert_payment(
     incoming_status: PaymentStatus,
     payment_entity: RazorpayPaymentEntity,
     raw_body: dict,
+    classification: ClassificationResult | None,
 ) -> None:
     now = datetime.now(UTC)
     existing = session.get(Payment, subject_id)
+
+    error_code = payment_entity.error_code if classification else None
+    error_reason = payment_entity.error_reason if classification else None
+    category = classification.category.value if classification else None
+
     if existing is None:
         session.add(
             Payment(
@@ -148,6 +178,9 @@ def _upsert_payment(
                 amount_paise=payment_entity.amount,
                 currency=payment_entity.currency,
                 method=payment_entity.method,
+                error_code=error_code,
+                error_reason=error_reason,
+                category=category,
                 raw_payload=raw_body,
                 created_at=now,
                 updated_at=now,
@@ -158,6 +191,10 @@ def _upsert_payment(
         existing.latest_payment_id = payment_entity.id
         existing.amount_paise = payment_entity.amount
         existing.method = payment_entity.method
+        if classification is not None:
+            existing.error_code = error_code
+            existing.error_reason = error_reason
+            existing.category = category
         existing.raw_payload = raw_body
         existing.updated_at = now
 
@@ -169,10 +206,13 @@ def _append_ledger(
     outcome: str,
     raw_body: dict,
     reason: str | None = None,
+    extra: dict | None = None,
 ) -> None:
     payload = {"razorpay_event": razorpay_event, "outcome": outcome, "raw_webhook": raw_body}
     if reason:
         payload["reason"] = reason
+    if extra:
+        payload.update(extra)
     append_entry(
         session,
         entity_type="payment",

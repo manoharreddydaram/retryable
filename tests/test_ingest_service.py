@@ -12,23 +12,30 @@ from src.ingest.models import Payment, WebhookEvent
 from src.ingest.service import ingest_webhook
 
 
-def _envelope(event: str, payment_id: str, order_id: str, status: str, amount: int = 50000) -> dict:
+def _envelope(
+    event: str,
+    payment_id: str,
+    order_id: str,
+    status: str,
+    amount: int = 50000,
+    error_reason: str | None = None,
+) -> dict:
+    entity = {
+        "id": payment_id,
+        "amount": amount,
+        "currency": "INR",
+        "status": status,
+        "order_id": order_id,
+        "method": "card",
+    }
+    if error_reason:
+        entity["error_reason"] = error_reason
+        entity["error_code"] = "BAD_REQUEST_ERROR"
     return {
         "entity": "event",
         "event": event,
         "contains": ["payment"],
-        "payload": {
-            "payment": {
-                "entity": {
-                    "id": payment_id,
-                    "amount": amount,
-                    "currency": "INR",
-                    "status": status,
-                    "order_id": order_id,
-                    "method": "card",
-                }
-            }
-        },
+        "payload": {"payment": {"entity": entity}},
         "created_at": 1700000000,
     }
 
@@ -102,3 +109,44 @@ def test_unsupported_event_type_is_ignored_without_error(db_session) -> None:
     body = {"entity": "event", "event": "refund.processed", "payload": {}}
     result = ingest_webhook(db_session, event_id="evt_1", raw_body=body)
     assert result.outcome == "ignored_unsupported_event"
+
+
+def test_failed_payment_is_classified_and_stored(db_session) -> None:
+    body = _envelope(
+        "payment.failed", "pay_1", "order_1", "failed", error_reason="insufficient_funds"
+    )
+    result = ingest_webhook(db_session, event_id="evt_1", raw_body=body)
+
+    assert result.category == "insufficient_funds"
+    payment = db_session.get(Payment, "order_1")
+    assert payment.category == "insufficient_funds"
+    assert payment.error_reason == "insufficient_funds"
+
+
+def test_unrecognized_error_reason_classifies_as_unknown(db_session) -> None:
+    body = _envelope(
+        "payment.failed", "pay_1", "order_1", "failed", error_reason="a_reason_never_documented"
+    )
+    result = ingest_webhook(db_session, event_id="evt_1", raw_body=body)
+
+    assert result.category == "unknown"
+
+
+def test_recovery_preserves_the_original_failure_category(db_session) -> None:
+    ingest_webhook(
+        db_session,
+        event_id="evt_1",
+        raw_body=_envelope(
+            "payment.failed", "pay_1", "order_1", "failed", error_reason="card_declined"
+        ),
+    )
+    ingest_webhook(
+        db_session,
+        event_id="evt_2",
+        raw_body=_envelope("payment.captured", "pay_2", "order_1", "captured"),
+    )
+
+    payment = db_session.get(Payment, "order_1")
+    assert payment.status == "captured"
+    assert payment.error_reason == "card_declined"
+    assert payment.category == "issuer_declined"
