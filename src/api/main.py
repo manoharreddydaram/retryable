@@ -1,10 +1,8 @@
-"""FastAPI application entrypoint.
-
-Stage 0: a health endpoint only, so that `make run` is verifiable from the
-first commit onward. Routes are added from Stage 2.
-"""
+"""FastAPI application entrypoint."""
 
 from fastapi import FastAPI
+
+from src.api.webhooks import router as webhooks_router
 
 app = FastAPI(
     title="Retryable",
@@ -12,8 +10,10 @@ app = FastAPI(
     version="0.1.0",
 )
 
+app.include_router(webhooks_router)
+
 
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     """Liveness probe. Does not touch the database."""
-    return {"status": "ok", "service": "retryable", "stage": "0"}
+    return {"status": "ok", "service": "retryable", "stage": "2"}
