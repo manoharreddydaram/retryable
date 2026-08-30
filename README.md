@@ -113,7 +113,7 @@ from getting worse while it's being handled.
 |:--|:--|:--|
 | 0 | Foundation: scaffold, Postgres, task runner, docs | ✅ |
 | 1 | Schema + append-only hash-chained audit ledger | ✅ |
-| 2 | Webhook ingress: HMAC verify, dedupe, state machine | ⬜ |
+| 2 | Webhook ingress: HMAC verify, dedupe, state machine | ✅ |
 | 3 | Canonical failure taxonomy + deterministic classifier | ⬜ |
 | 4 | Policy engine, intervention catalog, stopping rules | ⬜ |
 | 5 | Razorpay execution: outbox, idempotency, breaker | ⬜ |
