@@ -8,8 +8,11 @@ at the HTTP layer in test_webhook_endpoint.py.
 
 from sqlalchemy import select
 
+from src.execute.models import OutboxEntry
 from src.ingest.models import Payment, WebhookEvent
 from src.ingest.service import ingest_webhook
+from src.policy.models import Decision
+from tests.conftest import make_settings
 
 
 def _envelope(
@@ -19,6 +22,7 @@ def _envelope(
     status: str,
     amount: int = 50000,
     error_reason: str | None = None,
+    contact: str | None = None,
 ) -> dict:
     entity = {
         "id": payment_id,
@@ -31,6 +35,8 @@ def _envelope(
     if error_reason:
         entity["error_reason"] = error_reason
         entity["error_code"] = "BAD_REQUEST_ERROR"
+    if contact:
+        entity["contact"] = contact
     return {
         "entity": "event",
         "event": event,
@@ -150,3 +156,85 @@ def test_recovery_preserves_the_original_failure_category(db_session) -> None:
     assert payment.status == "captured"
     assert payment.error_reason == "card_declined"
     assert payment.category == "issuer_declined"
+
+
+def test_recoverable_failure_creates_a_decision_and_an_outbox_entry(db_session) -> None:
+    body = _envelope("payment.failed", "pay_1", "order_1", "failed", error_reason="incorrect_cvv")
+    result = ingest_webhook(db_session, event_id="evt_1", raw_body=body, settings=make_settings())
+
+    assert result.authorized_intervention == "send_payment_link"
+
+    decision = db_session.execute(
+        select(Decision).where(Decision.order_id == "order_1")
+    ).scalar_one()
+    assert decision.category == "input_error_retriable"
+    assert decision.overridden is False
+    assert decision.rule_id == "PROPOSAL_AUTHORIZED"
+
+    entry = db_session.execute(
+        select(OutboxEntry).where(OutboxEntry.decision_id == decision.id)
+    ).scalar_one()
+    assert entry.status == "pending"
+    assert entry.idempotency_key.startswith("rtx-")
+
+
+def test_unrecoverable_failure_creates_a_decision_but_no_outbox_entry(db_session) -> None:
+    body = _envelope("payment.failed", "pay_1", "order_2", "failed", error_reason="card_expired")
+    result = ingest_webhook(db_session, event_id="evt_1", raw_body=body, settings=make_settings())
+
+    assert result.authorized_intervention == "suppress"
+
+    decision = db_session.execute(
+        select(Decision).where(Decision.order_id == "order_2")
+    ).scalar_one()
+    assert decision.overridden is True
+    assert decision.rule_id == "UNRECOVERABLE_CATEGORY"
+
+    rows = (
+        db_session.execute(select(OutboxEntry).where(OutboxEntry.decision_id == decision.id))
+        .scalars()
+        .all()
+    )
+    assert rows == []
+
+
+def test_touch_cap_is_enforced_against_real_prior_outreach(db_session) -> None:
+    payer_contact = "+911234567890"
+    settings = make_settings(max_touches_per_payer_7d=1)
+
+    # A real prior failure that resulted in a real (successfully dispatched) outreach.
+    prior_body = _envelope(
+        "payment.failed",
+        "pay_prior",
+        "order_prior",
+        "failed",
+        error_reason="incorrect_cvv",
+        contact=payer_contact,
+    )
+    ingest_webhook(db_session, event_id="evt_prior", raw_body=prior_body, settings=settings)
+
+    prior_decision = db_session.execute(
+        select(Decision).where(Decision.order_id == "order_prior")
+    ).scalar_one()
+    prior_entry = db_session.execute(
+        select(OutboxEntry).where(OutboxEntry.decision_id == prior_decision.id)
+    ).scalar_one()
+    prior_entry.status = "complete"  # simulate the dispatcher having already sent this successfully
+    db_session.flush()
+
+    # A new, different failure for the same payer.
+    new_body = _envelope(
+        "payment.failed",
+        "pay_new",
+        "order_new",
+        "failed",
+        error_reason="incorrect_cvv",
+        contact=payer_contact,
+    )
+    result = ingest_webhook(db_session, event_id="evt_new", raw_body=new_body, settings=settings)
+
+    assert result.authorized_intervention == "suppress"
+    new_decision = db_session.execute(
+        select(Decision).where(Decision.order_id == "order_new")
+    ).scalar_one()
+    assert new_decision.rule_id == "TOUCH_CAP_EXCEEDED"

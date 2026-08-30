@@ -1,4 +1,5 @@
-"""Orchestrates one webhook delivery end to end: claim, decide, classify, persist, record.
+"""Orchestrates one webhook delivery end to end: claim, decide, classify,
+persist, decide again (policy), enqueue, record.
 
 The order_id is fully serialised with a Postgres advisory lock before its
 current status is read. Razorpay's own retry policy (resend on anything
@@ -12,8 +13,11 @@ request claims the event_id first proceeds, the other is told it lost the
 race and stops immediately without touching payment state twice.
 
 Every payment.failed that is actually applied gets run through the Stage 3
-deterministic classifier -- no AI, a lookup -- and the category is stored on
-the Payment row and in the ledger entry alongside the raw error fields.
+deterministic classifier, then Stage 4's policy engine, which authorises at
+most one intervention. If that intervention calls Razorpay, an outbox entry
+is written in the *same transaction* as the Decision -- see
+src/execute/outbox.py -- so the decision and the intent to act on it can
+never diverge.
 """
 
 from dataclasses import dataclass
@@ -24,10 +28,16 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from src.classify.rules import ClassificationResult, classify
+from src.config import Settings, get_settings
+from src.execute.outbox import enqueue_if_needed
 from src.ingest.models import Payment, WebhookEvent
 from src.ingest.schemas import RazorpayPaymentEntity, RazorpayWebhookEnvelope
 from src.ingest.state_machine import PaymentStatus, decide_transition
 from src.ledger.writer import append_entry
+from src.policy.context import touches_in_window
+from src.policy.engine import DecisionInput, Proposal, decide
+from src.policy.models import Decision
+from src.policy.rules_table import propose_default
 
 _SUPPORTED_EVENTS: dict[str, PaymentStatus] = {
     "payment.failed": PaymentStatus.FAILED,
@@ -40,9 +50,14 @@ class IngestResult:
     outcome: str
     order_id: str | None
     category: str | None = None
+    authorized_intervention: str | None = None
 
 
-def ingest_webhook(session: Session, *, event_id: str, raw_body: dict) -> IngestResult:
+def ingest_webhook(
+    session: Session, *, event_id: str, raw_body: dict, settings: Settings | None = None
+) -> IngestResult:
+    settings = settings or get_settings()
+
     envelope = RazorpayWebhookEnvelope.model_validate(raw_body)
     incoming_status = _SUPPORTED_EVENTS.get(envelope.event)
     payment_entity = envelope.payment_entity() if incoming_status else None
@@ -91,6 +106,12 @@ def ingest_webhook(session: Session, *, event_id: str, raw_body: dict) -> Ingest
             session, subject_id, incoming_status, payment_entity, raw_body, classification
         )
 
+    authorized_intervention = None
+    if classification is not None and outcome == "applied":
+        authorized_intervention = _decide_and_enqueue(
+            session, subject_id, payment_entity, classification, settings
+        )
+
     ledger_extra = None
     if classification is not None:
         ledger_extra = {
@@ -111,7 +132,70 @@ def ingest_webhook(session: Session, *, event_id: str, raw_body: dict) -> Ingest
         outcome=outcome,
         order_id=subject_id,
         category=classification.category.value if classification else None,
+        authorized_intervention=authorized_intervention,
     )
+
+
+def _decide_and_enqueue(
+    session: Session,
+    subject_id: str,
+    payment_entity: RazorpayPaymentEntity,
+    classification: ClassificationResult,
+    settings: Settings,
+) -> str:
+    now = datetime.now(UTC)
+    proposal = Proposal(
+        intervention=propose_default(classification.category).value, source="category_rules"
+    )
+    ctx = DecisionInput(
+        category=classification.category,
+        profile=classification.profile,
+        confidence=classification.confidence,
+        amount_paise=payment_entity.amount,
+        touches_in_window=touches_in_window(session, payment_entity.contact, now=now),
+        # live traffic has no batch context; Stage 6 supplies a real count
+        interventions_dispatched_in_batch=0,
+        now=now,
+    )
+    outcome = decide(proposal, ctx, settings)
+
+    row = Decision(
+        order_id=subject_id,
+        payer_contact=payment_entity.contact,
+        category=classification.category.value,
+        confidence=ctx.confidence,
+        amount_paise=payment_entity.amount,
+        proposed_intervention=outcome.proposed_intervention,
+        authorized_intervention=outcome.authorized_intervention.value,
+        overridden=outcome.overridden,
+        rule_id=outcome.rule_id,
+        reason=outcome.reason,
+        retry_at=outcome.retry_at,
+        decided_at=now,
+    )
+    session.add(row)
+    session.flush()  # populate row.id before it's referenced by the outbox entry
+
+    enqueue_if_needed(session, row)
+
+    append_entry(
+        session,
+        entity_type="decision",
+        entity_id=str(row.id),
+        event_type=f"decision.{outcome.rule_id.lower()}",
+        actor="system:policy",
+        payload={
+            "order_id": subject_id,
+            "category": classification.category.value,
+            "confidence": classification.confidence,
+            "proposed": outcome.proposed_intervention,
+            "authorized": outcome.authorized_intervention.value,
+            "overridden": outcome.overridden,
+            "rule_id": outcome.rule_id,
+            "reason": outcome.reason,
+        },
+    )
+    return outcome.authorized_intervention.value
 
 
 def _lock_subject(session: Session, subject_id: str) -> None:

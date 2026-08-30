@@ -17,6 +17,7 @@ from src.classify.rules import classify
 from src.config import Settings
 from src.policy.catalog import Intervention
 from src.policy.engine import DecisionInput, Proposal, decide
+from tests.conftest import make_settings
 
 _DAYTIME = datetime(2026, 6, 15, 14, 0, tzinfo=UTC)  # 2pm -- outside quiet hours
 _NIGHT = datetime(2026, 6, 15, 22, 0, tzinfo=UTC)  # 10pm -- inside quiet hours (21-9)
@@ -24,17 +25,7 @@ _NIGHT = datetime(2026, 6, 15, 22, 0, tzinfo=UTC)  # 10pm -- inside quiet hours 
 
 @pytest.fixture()
 def settings() -> Settings:
-    return Settings(
-        database_url="postgresql+psycopg://test:test@localhost/test",
-        kill_switch_enabled=False,
-        max_interventions_per_batch=200,
-        max_touches_per_payer_7d=3,
-        quiet_hours_start=21,
-        quiet_hours_end=9,
-        min_diagnosis_confidence=0.7,
-        human_approval_threshold_paise=2_500_000,
-        intervention_cost_paise=50,
-    )
+    return make_settings()
 
 
 def _ctx(**overrides) -> DecisionInput:
