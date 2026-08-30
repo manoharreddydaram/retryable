@@ -16,6 +16,7 @@ class RazorpayPaymentEntity(BaseModel):
     status: str
     order_id: str | None = None
     method: str | None = None
+    contact: str | None = None
     error_code: str | None = None
     error_reason: str | None = None
 

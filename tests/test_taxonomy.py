@@ -93,3 +93,15 @@ def test_reason_takes_priority_over_code() -> None:
 
 def test_no_signal_at_all_falls_back_to_unknown() -> None:
     assert classify(None, None).category == FailureCategory.UNKNOWN
+
+
+def test_exact_reason_match_is_full_confidence() -> None:
+    assert classify("insufficient_funds").confidence == 1.0
+
+
+def test_error_code_fallback_is_above_the_default_confidence_floor() -> None:
+    assert classify(None, "GATEWAY_ERROR").confidence > 0.7
+
+
+def test_no_match_is_zero_confidence() -> None:
+    assert classify(None, None).confidence == 0.0

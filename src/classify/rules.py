@@ -32,6 +32,16 @@ class ClassificationResult:
     profile: CategoryProfile
     matched_on: str  # "error_reason" | "error_code" | "no_match"
     matched_value: str | None
+    confidence: float
+
+
+# An exact error_reason match is a direct lookup: full confidence. A bare
+# error_code fallback (GATEWAY_ERROR, SERVER_ERROR) is coarser -- still
+# fairly reliable, but not as specific -- so it's set just above the policy
+# engine's default confidence floor (0.7), not at 1.0. No match at all is
+# honestly 0.0: the confidence floor gate exists precisely so "we don't
+# know" is never silently treated as "we're sure."
+_CONFIDENCE_BY_MATCH = {"error_reason": 1.0, "error_code": 0.85, "no_match": 0.0}
 
 
 @lru_cache
@@ -60,12 +70,28 @@ def classify(error_reason: str | None, error_code: str | None = None) -> Classif
 
     if error_reason and error_reason in taxonomy["error_reasons"]:
         category = FailureCategory(taxonomy["error_reasons"][error_reason])
-        return ClassificationResult(category, profiles[category], "error_reason", error_reason)
+        return ClassificationResult(
+            category,
+            profiles[category],
+            "error_reason",
+            error_reason,
+            _CONFIDENCE_BY_MATCH["error_reason"],
+        )
 
     if error_code and error_code in taxonomy["error_codes"]:
         category = FailureCategory(taxonomy["error_codes"][error_code])
-        return ClassificationResult(category, profiles[category], "error_code", error_code)
+        return ClassificationResult(
+            category,
+            profiles[category],
+            "error_code",
+            error_code,
+            _CONFIDENCE_BY_MATCH["error_code"],
+        )
 
     return ClassificationResult(
-        FailureCategory.UNKNOWN, profiles[FailureCategory.UNKNOWN], "no_match", None
+        FailureCategory.UNKNOWN,
+        profiles[FailureCategory.UNKNOWN],
+        "no_match",
+        None,
+        _CONFIDENCE_BY_MATCH["no_match"],
     )
