@@ -5,8 +5,12 @@ from sqlalchemy import engine_from_config, pool
 
 from src.config import get_settings
 from src.db.base import Base
+from src.execute import (
+    models as execute_models,  # noqa: F401 -- registers OutboxEntry, CircuitBreakerState
+)
 from src.ingest import models as ingest_models  # noqa: F401 -- registers Payment, WebhookEvent
 from src.ledger import models  # noqa: F401 -- registers LedgerEntry on Base.metadata
+from src.policy import models as policy_models  # noqa: F401 -- registers Decision
 
 config = context.config
 if config.config_file_name is not None:
