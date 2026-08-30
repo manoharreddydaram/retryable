@@ -1,0 +1,69 @@
+# category -> default proposal. This is Stage 4's own proposer, used until
+# Stage 7's LLM exists. Once it does, its proposals pass through the exact
+# same gates in src/policy/engine.py as this table's do -- neither source
+# gets to skip the policy engine.
+#
+# tests/test_policy_catalog.py enforces two invariants against
+# src/classify/error_taxonomy.yaml automatically: every category marked
+# unrecoverable here defaults to `suppress`, and every category marked not
+# customer_actionable never defaults to a contacting intervention. A rule
+# below that violated either would fail CI, not just look wrong on review.
+
+category_rules:
+  insufficient_funds:
+    intervention: send_payment_link
+    wait_hours: null
+    description: >
+      Customer may have funds again soon; a fresh payment link now has a
+      real chance, sent once rather than repeatedly.
+
+  auth_abandoned:
+    intervention: send_payment_link
+    wait_hours: null
+    description: >
+      Customer's intent was there; a same-day nudge has the best chance of
+      completing the payment before that intent fades.
+
+  input_error_retriable:
+    intervention: send_payment_link
+    wait_hours: null
+    description: >
+      A fresh attempt with correct details will likely succeed immediately.
+
+  instrument_blocked:
+    intervention: suppress
+    wait_hours: null
+    description: >
+      This instrument will not work again; no outreach fixes a dead card.
+
+  issuer_declined:
+    intervention: suppress
+    wait_hours: null
+    description: >
+      The bank's own decision; not ours to override with a nudge.
+
+  infra_outage:
+    intervention: wait
+    wait_hours: 2
+    description: >
+      Re-check after the outage has had time to clear rather than blaming
+      the customer for a failure that was never theirs.
+
+  ambiguous_verify_before_acting:
+    intervention: verify_status
+    wait_hours: null
+    description: >
+      Confirm the real payment status before doing anything that could
+      double-charge.
+
+  merchant_config_error:
+    intervention: suppress
+    wait_hours: null
+    description: >
+      Not the customer's problem and not fixable by contacting them.
+
+  unknown:
+    intervention: escalate_to_human
+    wait_hours: null
+    description: >
+      No rule matched; a human decides rather than the system guessing.
