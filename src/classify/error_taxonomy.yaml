@@ -1,0 +1,225 @@
+# Canonical failure taxonomy and the deterministic classifier table.
+#
+# Maps Razorpay's documented error_reason values onto this project's
+# canonical categories. Sourced directly from Razorpay's own documentation:
+#   https://razorpay.com/docs/payments/payment-gateway/rainy-day/errors/error-reasons/
+#   https://razorpay.com/docs/errors/payments/list/
+#
+# Every category's recovery semantics are defined once, in `categories`, and
+# referenced by name from `error_reasons` / `error_codes` -- changing what
+# "instrument_blocked" *means* changes it everywhere at once, and adding a
+# newly-observed error_reason is a one-line addition, not a code change.
+#
+# error_reasons is the primary key. error_codes is a coarse fallback used
+# only when error_reason is missing or not in this table -- see rules.py.
+# Categories genuinely absent from real Razorpay traffic (unrecognized
+# strings, and the small number of documented reasons too generic to
+# classify honestly -- payment_failed, verification_failed) fall to
+# `unknown`, which Stage 7's long-tail classifier picks up.
+
+categories:
+  insufficient_funds:
+    recoverable: true
+    customer_actionable: true
+    retry_timing: delayed
+    description: >
+      Customer's account lacked funds at the time of the attempt; may
+      succeed after a delay (e.g. next payday).
+
+  auth_abandoned:
+    recoverable: true
+    customer_actionable: true
+    retry_timing: immediate
+    description: >
+      Customer started paying but didn't finish -- cancelled, or the
+      OTP/session/mandate window lapsed. A checkout-abandonment signal,
+      not a technical failure.
+
+  input_error_retriable:
+    recoverable: true
+    customer_actionable: true
+    retry_timing: immediate
+    description: >
+      Customer mistyped a credential (CVV, OTP, PIN, card number, VPA) --
+      correctable on the very next attempt with no waiting period needed.
+
+  instrument_blocked:
+    recoverable: false
+    customer_actionable: true
+    retry_timing: never
+    description: >
+      The specific card/instrument used cannot succeed again. Recovery
+      needs a different payment method, not a retry of this one.
+
+  issuer_declined:
+    recoverable: false
+    customer_actionable: true
+    retry_timing: never
+    description: >
+      The issuing bank declined for its own policy reasons (risk, credit
+      limits, compliance, restrictions). Retrying the same method will not
+      change the bank's decision.
+
+  infra_outage:
+    recoverable: true
+    customer_actionable: false
+    retry_timing: wait_for_external_event
+    description: >
+      Bank, PSP, or gateway technical failure -- not the customer's fault.
+      Messaging them before the outage clears looks like blaming them for
+      the merchant's infrastructure.
+
+  ambiguous_verify_before_acting:
+    recoverable: true
+    customer_actionable: false
+    retry_timing: verify_before_acting
+    description: >
+      The payment may have already succeeded (timeout, duplicate,
+      already-paid, mismatched details). Verify the real status via the
+      Razorpay API before any action -- never blind-retry a possible
+      double charge.
+
+  merchant_config_error:
+    recoverable: false
+    customer_actionable: false
+    retry_timing: never
+    description: >
+      An integration or configuration problem on the merchant's side. The
+      customer did nothing wrong and cannot fix it -- route to the
+      merchant/developer, never to the customer.
+
+  unknown:
+    recoverable: false
+    customer_actionable: false
+    retry_timing: verify_before_acting
+    description: >
+      No rule matched this error. Falls to the long-tail LLM classifier
+      (Stage 7) or a human reviewer -- never acted on by this table alone.
+
+error_reasons:
+  insufficient_funds: insufficient_funds
+
+  authentication_failed: auth_abandoned
+  payment_cancelled: auth_abandoned
+  payment_session_expired: auth_abandoned
+  payment_collect_request_expired: auth_abandoned
+  collect_request_pending: auth_abandoned
+  payment_pending_approval: auth_abandoned
+  mandate_creation_expired: auth_abandoned
+  otp_expired: auth_abandoned
+  reqauth_mandate_not_acknowledged: auth_abandoned
+
+  incorrect_atm_pin: input_error_retriable
+  incorrect_card_details: input_error_retriable
+  incorrect_card_expiry_date: input_error_retriable
+  incorrect_cardholder_name: input_error_retriable
+  incorrect_cvv: input_error_retriable
+  incorrect_otp: input_error_retriable
+  incorrect_pin: input_error_retriable
+  otp_attempts_exceeded: input_error_retriable
+  pin_attempts_exceeded: input_error_retriable
+  pin_not_set: input_error_retriable
+  card_number_invalid: input_error_retriable
+  invalid_vpa: input_error_retriable
+  vpa_resolution_failed: input_error_retriable
+  bank_account_invalid: input_error_retriable
+  bank_account_validation_failed: input_error_retriable
+
+  card_expired: instrument_blocked
+  card_not_enrolled: instrument_blocked
+  debit_instrument_blocked: instrument_blocked
+  debit_instrument_inactive: instrument_blocked
+  psp_app_not_supported: instrument_blocked
+  psp_not_registered: instrument_blocked
+  upi_autopay_not_supported_on_psp: instrument_blocked
+  user_not_registered_for_netbanking: instrument_blocked
+
+  card_declined: issuer_declined
+  debit_declined: issuer_declined
+  authorisation_declined_by_psp: issuer_declined
+  payment_declined: issuer_declined
+  compliance_violation: issuer_declined
+  credit_limit_exceeded: issuer_declined
+  credit_limit_expired: issuer_declined
+  credit_limit_inactive: issuer_declined
+  credit_limit_not_approved: issuer_declined
+  credit_not_permitted: issuer_declined
+  funds_blocked_by_mandate: issuer_declined
+  international_transaction_not_allowed: issuer_declined
+  mandate_creation_declined: issuer_declined
+  payment_risk_check_failed: issuer_declined
+  transaction_daily_count_exceeded: issuer_declined
+  transaction_daily_limit_exceeded: issuer_declined
+  transaction_limit_exceeded: issuer_declined
+  transaction_frequency_limit_exceeded: issuer_declined
+  transaction_on_vpa_restricted: issuer_declined
+  user_not_eligible: issuer_declined
+  payment_amount_tampered: issuer_declined
+
+  bank_cutoff_in_progress: infra_outage
+  bank_not_available: infra_outage
+  bank_technical_error: infra_outage
+  gateway_technical_error: infra_outage
+  invalid_response_from_gateway: infra_outage
+  issuer_technical_error: infra_outage
+  psp_app_not_available: infra_outage
+  psp_not_available: infra_outage
+  server_error: infra_outage
+  upi_app_technical_error: infra_outage
+  payment_declined_due_to_high_traffic: infra_outage
+
+  capture_failed: ambiguous_verify_before_acting
+  credit_failed: ambiguous_verify_before_acting
+  deemed_transaction: ambiguous_verify_before_acting
+  duplicate_request: ambiguous_verify_before_acting
+  duplicate_rrn_found: ambiguous_verify_before_acting
+  mandate_creation_failed: ambiguous_verify_before_acting
+  mandate_creation_timeout: ambiguous_verify_before_acting
+  mismatch_in_transaction_details: ambiguous_verify_before_acting
+  order_already_paid: ambiguous_verify_before_acting
+  payment_pending: ambiguous_verify_before_acting
+  payment_timed_out: ambiguous_verify_before_acting
+  request_timed_out: ambiguous_verify_before_acting
+
+  amount_less_than_minimum_amount: merchant_config_error
+  bank_not_enabled: merchant_config_error
+  beneficiary_account_does_not_exist: merchant_config_error
+  beneficiary_account_dormant: merchant_config_error
+  card_network_not_enabled: merchant_config_error
+  card_type_invalid: merchant_config_error
+  collect_on_mcc_blocked: merchant_config_error
+  duplicate_refund_id: merchant_config_error
+  emi_greater_than_max_amount: merchant_config_error
+  emi_plan_unavailable: merchant_config_error
+  input_validation_failed: merchant_config_error
+  invalid_amount: merchant_config_error
+  invalid_currency: merchant_config_error
+  invalid_device: merchant_config_error
+  invalid_email: merchant_config_error
+  invalid_mobile_number: merchant_config_error
+  invalid_order_id: merchant_config_error
+  invalid_request: merchant_config_error
+  invalid_user_details: merchant_config_error
+  live_mode_not_enabled: merchant_config_error
+  merchant_not_activated: merchant_config_error
+  mobile_number_invalid: merchant_config_error
+  order_amount_mismatch: merchant_config_error
+  order_payment_method_mismatch: merchant_config_error
+  payment_method_not_enabled: merchant_config_error
+  record_not_found: merchant_config_error
+  recurring_payment_not_enabled: merchant_config_error
+  refund_limit_crossed: merchant_config_error
+  upi_collect_not_enabled: merchant_config_error
+  upi_intent_not_enabled: merchant_config_error
+
+  payment_failed: unknown
+  verification_failed: unknown
+
+# error_code -> category, used only when error_reason is absent or not
+# recognized above. Deliberately short: BAD_REQUEST_ERROR is too ambiguous
+# (could be customer input or merchant misconfiguration) to default safely,
+# so an unrecognized reason under that code honestly falls to `unknown`
+# rather than guessing.
+error_codes:
+  GATEWAY_ERROR: infra_outage
+  SERVER_ERROR: infra_outage
