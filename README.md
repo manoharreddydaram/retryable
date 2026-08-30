@@ -165,6 +165,40 @@ actually produce a proposal like that.
 
 ---
 
+## Execution and idempotency
+
+Razorpay's Payment Links API has no native idempotency-key header — that
+exists only for Payouts, Direct Transfers, and Refunds (verified against
+their docs, not assumed). Instead, every payment link created here carries
+a `reference_id` derived from the decision's own ID, and Razorpay enforces
+`reference_id` uniqueness itself: a second create with the same value
+returns an explicit "already exists" error instead of a second link.
+
+That error *is* this project's idempotency mechanism. When a create call
+times out — the exact case designed failure #3 covers — the outcome is
+unknown: it may have reached Razorpay and succeeded, or it may not have.
+Retrying with the same reference_id resolves this either way: a fresh
+create succeeds normally, or an "already exists" error proves the first
+attempt already worked, in which case the existing link is fetched and
+treated as success, not failure. Either way, exactly one link is ever
+created per decision — proven in
+[tests/test_razorpay_client.py](tests/test_razorpay_client.py) against a
+mocked transport, and verifiable against the real API with
+`make verify-razorpay` once real test-mode credentials are in `.env`.
+
+Every authorized decision that calls Razorpay is written to an outbox entry
+in the *same transaction* as the decision it belongs to (ADR-003) — the
+decision and the intent to act on it can never diverge. A separate
+dispatcher (`make dispatch`) polls for entries whose retry time has come,
+claiming rows with `SELECT ... FOR UPDATE SKIP LOCKED` so it's safe to run
+concurrently. Failures back off exponentially with jitter and feed a
+three-state circuit breaker shared across dispatcher runs: five consecutive
+failures open it, and every other entry due in that run is left pending
+rather than each taking its own doomed shot at a service that's already
+down.
+
+---
+
 ## Status
 
 🚧 In active development.
@@ -176,7 +210,7 @@ actually produce a proposal like that.
 | 2 | Webhook ingress: HMAC verify, dedupe, state machine | ✅ |
 | 3 | Canonical failure taxonomy + deterministic classifier | ✅ |
 | 4 | Policy engine, intervention catalog, stopping rules | ✅ |
-| 5 | Razorpay execution: outbox, idempotency, breaker | ⬜ |
+| 5 | Razorpay execution: outbox, idempotency, breaker | ✅ |
 | 6 | Evaluation harness with randomised control arm | ⬜ |
 | 7 | LLM layer: long-tail classifier + diagnosis | ⬜ |
 | 8 | Statistical degradation detector | ⬜ |
