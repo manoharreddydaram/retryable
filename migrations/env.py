@@ -5,6 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from src.config import get_settings
 from src.db.base import Base
+from src.ingest import models as ingest_models  # noqa: F401 -- registers Payment, WebhookEvent
 from src.ledger import models  # noqa: F401 -- registers LedgerEntry on Base.metadata
 
 config = context.config
