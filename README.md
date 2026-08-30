@@ -105,6 +105,38 @@ from getting worse while it's being handled.
 
 ---
 
+## Failure taxonomy
+
+Every `payment.failed` webhook is classified the moment it arrives, using a
+deterministic lookup table over Razorpay's own documented `error_reason`
+values — 109 of them, covering the real vocabulary their gateway, banks, and
+UPI apps actually produce. No AI involved, per the AI-usage boundary above:
+this is a lookup, not a judgment call. The full mapping, sourced directly
+from Razorpay's docs, is in
+[src/classify/error_taxonomy.yaml](src/classify/error_taxonomy.yaml).
+
+| Category | Recoverable? | Retry timing | Example `error_reason` |
+|:--|:--:|:--|:--|
+| `insufficient_funds` | Yes | Delayed | `insufficient_funds` |
+| `auth_abandoned` | Yes | Immediate | `payment_cancelled`, `otp_expired` |
+| `input_error_retriable` | Yes | Immediate | `incorrect_cvv`, `invalid_vpa` |
+| `instrument_blocked` | No | Never — switch method | `card_expired`, `debit_instrument_blocked` |
+| `issuer_declined` | No | Never — switch method | `card_declined`, `credit_limit_exceeded` |
+| `infra_outage` | Yes | Wait for outage to clear | `bank_not_available`, `gateway_technical_error` |
+| `ambiguous_verify_before_acting` | Maybe | Verify before any action | `payment_timed_out`, `order_already_paid` |
+| `merchant_config_error` | No | Never — not the customer's fault | `invalid_order_id`, `invalid_amount` |
+| `unknown` | — | Falls to Stage 7's LLM, or a human | anything not in the table |
+
+Two categories are worth reading twice. `ambiguous_verify_before_acting` is
+the double-charge trap: a gateway timeout can mean the payment actually went
+through, so the only safe first move is to check the real status via the
+Razorpay API, never to retry blind. `infra_outage` is the "don't blame the
+customer" case from the problem statement above — a bank-side outage gets a
+delay, not an apology email to four hundred people for a failure that was
+never theirs.
+
+---
+
 ## Status
 
 🚧 In active development.
@@ -114,7 +146,7 @@ from getting worse while it's being handled.
 | 0 | Foundation: scaffold, Postgres, task runner, docs | ✅ |
 | 1 | Schema + append-only hash-chained audit ledger | ✅ |
 | 2 | Webhook ingress: HMAC verify, dedupe, state machine | ✅ |
-| 3 | Canonical failure taxonomy + deterministic classifier | ⬜ |
+| 3 | Canonical failure taxonomy + deterministic classifier | ✅ |
 | 4 | Policy engine, intervention catalog, stopping rules | ⬜ |
 | 5 | Razorpay execution: outbox, idempotency, breaker | ⬜ |
 | 6 | Evaluation harness with randomised control arm | ⬜ |
