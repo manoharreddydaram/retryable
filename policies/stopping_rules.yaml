@@ -1,0 +1,53 @@
+# Rule IDs and human-readable reasons for every gate the policy engine can
+# stop a proposal on, in the order src/policy/engine.py checks them. The
+# numeric thresholds themselves (touch cap, spend ceiling, confidence
+# floor, ...) live in .env / Settings (src/config.py), declared there since
+# Stage 0 -- this file is what makes the *set of gates and their reasons* a
+# reviewable, versioned artifact rather than string literals buried in code.
+
+gates:
+  - rule_id: KILL_SWITCH
+    description: >
+      Global halt. When enabled, nothing is authorized, regardless of
+      anything else.
+
+  - rule_id: LOW_CONFIDENCE
+    description: >
+      Diagnosis confidence is below the configured floor; routed to a
+      human instead of acted on.
+
+  - rule_id: UNRECOVERABLE_CATEGORY
+    description: >
+      The failure category is marked unrecoverable; chasing it would be a
+      wasted attempt by definition.
+
+  - rule_id: TOUCH_CAP_EXCEEDED
+    description: >
+      This payer has already been contacted the maximum allowed number of
+      times in the trailing 7-day window.
+
+  - rule_id: HUMAN_APPROVAL_REQUIRED
+    description: >
+      The amount exceeds the threshold below which the policy engine may
+      act alone.
+
+  - rule_id: BATCH_INTERVENTION_CEILING
+    description: >
+      This run has already dispatched the maximum interventions allowed
+      per batch.
+
+  - rule_id: OUT_OF_CATALOG
+    description: >
+      The proposed intervention is not a member of the closed catalog and
+      cannot be authorized.
+
+  - rule_id: CATEGORY_NOT_CUSTOMER_ACTIONABLE
+    description: >
+      This category is not the customer's fault or not yet resolvable
+      (e.g. an infrastructure outage); a customer-contacting proposal is
+      replaced with the category's own safe default instead.
+
+  - rule_id: QUIET_HOURS
+    description: >
+      Outside the configured outreach window; deferred to the next
+      allowed hour, not cancelled.
