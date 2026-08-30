@@ -20,11 +20,13 @@ function Show-Help {
     Write-Host "  .\tasks.ps1 install    install python dependencies"
     Write-Host "  .\tasks.ps1 db-up      start postgres and wait until healthy"
     Write-Host "  .\tasks.ps1 db-down    stop postgres (data preserved)"
-    Write-Host "  .\tasks.ps1 db-shell   open a psql prompt"
-    Write-Host "  .\tasks.ps1 migrate    apply alembic migrations up to head"
-    Write-Host "  .\tasks.ps1 run        run the API server on :8000"
-    Write-Host "  .\tasks.ps1 test       run the test suite"
-    Write-Host "  .\tasks.ps1 lint       lint and format check"
+    Write-Host "  .\tasks.ps1 db-shell         open a psql prompt"
+    Write-Host "  .\tasks.ps1 migrate          apply alembic migrations up to head"
+    Write-Host "  .\tasks.ps1 run              run the API server on :8000"
+    Write-Host "  .\tasks.ps1 dispatch         run the outbox dispatcher once"
+    Write-Host "  .\tasks.ps1 verify-razorpay  one-off check that real .env credentials work"
+    Write-Host "  .\tasks.ps1 test             run the test suite"
+    Write-Host "  .\tasks.ps1 lint             lint and format check"
     Write-Host ""
     Write-Host "  demo / eval are added in Stage 6." -ForegroundColor DarkGray
     Write-Host ""
@@ -54,14 +56,16 @@ switch ($Task) {
     "db-shell" { docker compose exec db psql -U retryable -d retryable }
     "migrate"  { alembic upgrade head }
     "run"      { uvicorn src.api.main:app --reload --port 8000 }
+    "dispatch" { python scripts/run_dispatcher.py }
+    "verify-razorpay" { python scripts/verify_razorpay_connection.py }
     "test"     { pytest -q }
 
     "lint" {
-        ruff check src tests
-        ruff format --check src tests
+        ruff check src tests migrations scripts
+        ruff format --check src tests migrations scripts
     }
 
-    "fmt" { ruff format src tests }
+    "fmt" { ruff format src tests migrations scripts }
 
     default { Show-Help }
 }

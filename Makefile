@@ -1,16 +1,18 @@
-.PHONY: help install db-up db-down db-logs db-shell migrate run test lint fmt clean
+.PHONY: help install db-up db-down db-logs db-shell migrate run test lint fmt clean dispatch verify-razorpay
 
 help:
 	@echo "Retryable - developer commands"
 	@echo ""
-	@echo "  make install   install python dependencies"
-	@echo "  make db-up     start postgres and block until it is healthy"
-	@echo "  make db-down   stop postgres (data is preserved in the volume)"
-	@echo "  make db-shell  open a psql prompt against the running database"
-	@echo "  make migrate   apply alembic migrations up to head"
-	@echo "  make run       run the API server on :8000"
-	@echo "  make test      run the test suite"
-	@echo "  make lint      lint and format check"
+	@echo "  make install          install python dependencies"
+	@echo "  make db-up            start postgres and block until it is healthy"
+	@echo "  make db-down          stop postgres (data is preserved in the volume)"
+	@echo "  make db-shell         open a psql prompt against the running database"
+	@echo "  make migrate          apply alembic migrations up to head"
+	@echo "  make run              run the API server on :8000"
+	@echo "  make dispatch         run the outbox dispatcher once"
+	@echo "  make verify-razorpay  one-off check that real .env credentials actually work"
+	@echo "  make test             run the test suite"
+	@echo "  make lint             lint and format check"
 	@echo ""
 	@echo "  make demo / make eval are added in Stage 6."
 
@@ -35,6 +37,12 @@ db-shell:
 migrate:
 	alembic upgrade head
 
+dispatch:
+	python scripts/run_dispatcher.py
+
+verify-razorpay:
+	python scripts/verify_razorpay_connection.py
+
 run:
 	uvicorn src.api.main:app --reload --port 8000
 
@@ -42,11 +50,11 @@ test:
 	pytest -q
 
 lint:
-	ruff check src tests
-	ruff format --check src tests
+	ruff check src tests migrations scripts
+	ruff format --check src tests migrations scripts
 
 fmt:
-	ruff format src tests
+	ruff format src tests migrations scripts
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
