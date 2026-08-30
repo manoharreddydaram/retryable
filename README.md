@@ -137,6 +137,34 @@ never theirs.
 
 ---
 
+## Policy engine
+
+The only code in this project allowed to authorise spending money. Every
+decision separates *what was proposed* (today, Stage 4's own category
+rules; from Stage 7 on, an LLM) from *what was authorized* — the two can
+differ, and when they do, both the proposal and the veto are recorded, not
+just the final outcome.
+
+A proposal passes through nine ordered gates — kill switch first, then the
+confidence floor, category recoverability, touch cap, spend threshold,
+batch ceiling, catalog membership, whether this category permits customer
+contact at all, and finally quiet hours. The first gate that fires wins;
+its `rule_id` is what ends up on the decision. The full catalog and rule
+set are versioned data, not buried constants:
+[policies/interventions.yaml](policies/interventions.yaml),
+[policies/rules.yaml](policies/rules.yaml),
+[policies/stopping_rules.yaml](policies/stopping_rules.yaml).
+
+Two tests in [tests/test_policy_engine.py](tests/test_policy_engine.py)
+demonstrate the designed failures directly: a proposal naming something
+outside the five-intervention catalog (`give_10_percent_discount`) is
+rejected with `OUT_OF_CATALOG`, and a proposal to contact a customer during
+a documented bank outage is overridden to `wait` with
+`CATEGORY_NOT_CUSTOMER_ACTIONABLE` — both before Stage 7's LLM exists to
+actually produce a proposal like that.
+
+---
+
 ## Status
 
 🚧 In active development.
@@ -147,7 +175,7 @@ never theirs.
 | 1 | Schema + append-only hash-chained audit ledger | ✅ |
 | 2 | Webhook ingress: HMAC verify, dedupe, state machine | ✅ |
 | 3 | Canonical failure taxonomy + deterministic classifier | ✅ |
-| 4 | Policy engine, intervention catalog, stopping rules | ⬜ |
+| 4 | Policy engine, intervention catalog, stopping rules | ✅ |
 | 5 | Razorpay execution: outbox, idempotency, breaker | ⬜ |
 | 6 | Evaluation harness with randomised control arm | ⬜ |
 | 7 | LLM layer: long-tail classifier + diagnosis | ⬜ |
