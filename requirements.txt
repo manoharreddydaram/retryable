@@ -1,0 +1,33 @@
+# Pinned for Python 3.13 on Windows. All versions verified to ship cp313/win_amd64 wheels.
+
+# Web
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+pydantic-settings==2.7.0
+
+# Database
+sqlalchemy==2.0.36
+psycopg[binary]==3.2.3
+alembic==1.14.0
+
+# HTTP / Razorpay
+httpx==0.28.1
+tenacity==9.0.0
+
+# Config
+pyyaml==6.0.2
+python-dotenv==1.0.1
+
+# Statistics (Stage 8 degradation detector)
+numpy==2.2.0
+scipy==1.14.1
+
+# Dev
+pytest==8.3.4
+pytest-asyncio==0.25.0
+ruff==0.8.4
+
+# Deliberately absent:
+#   langchain / crewai / autogen -- see DECISIONS.md ADR-002
+#   celery / redis              -- see DECISIONS.md ADR-003
