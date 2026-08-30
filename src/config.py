@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     human_approval_threshold_paise: int = 2_500_000
     intervention_cost_paise: int = 50
 
+    circuit_breaker_failure_threshold: int = 5
+    circuit_breaker_cooldown_seconds: int = 60
+
     @field_validator("razorpay_key_id")
     @classmethod
     def _key_must_be_test_mode(cls, value: str) -> str:
