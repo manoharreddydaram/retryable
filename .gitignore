@@ -1,0 +1,27 @@
+# Environment secrets — never commit real keys
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Virtual environment
+.venv/
+venv/
+
+# Node (web/, Stage 9+)
+node_modules/
+web/dist/
+web/build/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
