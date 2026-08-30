@@ -1,6 +1,11 @@
 # Environment secrets — never commit real keys
 .env
 
+# Local AI-assistant build brief. Written as instructions to a coding
+# assistant, not documentation for a reader — its judge-relevant content
+# (AI-usage boundaries, designed failure scenarios) lives in README.md.
+CLAUDE.md
+
 # Python
 __pycache__/
 *.py[cod]
