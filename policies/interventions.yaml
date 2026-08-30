@@ -1,0 +1,42 @@
+# The closed intervention catalog. A proposal naming anything not listed
+# here is rejected by the policy engine as out-of-catalog -- regardless of
+# whether it came from Stage 4's own rules table or, from Stage 7 on, an LLM.
+#
+# There is no "send_whatsapp" / "send_email" / "call_customer" here on
+# purpose: this project does not integrate a real messaging provider (see
+# CLAUDE.md's build constraints). send_payment_link is the one real,
+# customer-facing Razorpay action; everything else is a control action.
+
+interventions:
+  send_payment_link:
+    requires_customer_contact: true
+    calls_razorpay: true
+    description: >
+      Create a fresh Razorpay Payment Link for the order amount and make
+      it available to the customer.
+
+  wait:
+    requires_customer_contact: false
+    calls_razorpay: false
+    description: >
+      Take no action now; re-evaluate this order at retry_at.
+
+  verify_status:
+    requires_customer_contact: false
+    calls_razorpay: true
+    description: >
+      Query Razorpay for the payment's real current status before doing
+      anything else -- used when the failure might not be a failure at all.
+
+  escalate_to_human:
+    requires_customer_contact: false
+    calls_razorpay: false
+    description: >
+      Route to a human reviewer. Never acted on automatically.
+
+  suppress:
+    requires_customer_contact: false
+    calls_razorpay: false
+    description: >
+      Deliberately do nothing for this failure, permanently. The core
+      differentiator this project measures: the decision to stay silent.
