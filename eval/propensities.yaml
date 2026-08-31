@@ -1,0 +1,84 @@
+# Payer-response propensities: P(converts | category, timing).
+#
+# Committed to git BEFORE any evaluation run (see EVALUATION.md) so these
+# numbers cannot be tuned after seeing a disappointing result. The
+# simulator that reads this file (eval/payer_simulator.py) is blind to
+# which arm triggered a send, which rule authorised it, or any confidence
+# score -- it sees only (category, timing) -- so it cannot be gamed by
+# making our own reasoning look good.
+#
+# There is no peer-reviewed literature specific to payment-link dunning.
+# These are industry-reported benchmark ranges, cited per entry, adjusted
+# down from multi-touch campaign figures since this project's mechanism is
+# a single payment-link send, not a sequenced dunning campaign. "channel"
+# is a single value today (payment_link) since that is the only real
+# mechanism this project builds -- see CLAUDE.md's build constraints on why
+# no messaging provider is integrated.
+
+# category -> P(converts) for a link sent immediately (what the treatment
+# arm's own decisions actually produce for the three categories that get a
+# send at all: insufficient_funds, auth_abandoned, input_error_retriable).
+# The other categories only ever receive a send from the control arm, which
+# sends unconditionally -- these values represent what happens when you
+# retry a customer who structurally can't or won't complete the payment.
+immediate:
+  insufficient_funds: 0.35
+  # Anchored below the ~0.476 industry-median *blended* dunning recovery
+  # rate for a full multi-touch sequence (Baremetrics, "Subscription
+  # Payment Recovery Benchmarks 2026") since this is one immediate touch,
+  # not a multi-day campaign.
+
+  auth_abandoned: 0.30
+  # Within the 0.25-0.40 range reported for SMS-style single-link
+  # abandoned-cart recovery (CartBoss "Abandoned Carts: Email vs SMS
+  # Statistics"; ATTN Agency "SMS Abandoned Cart Recovery", 2026).
+
+  input_error_retriable: 0.50
+  # Not a real decline -- the customer already reached checkout and
+  # mistyped a credential (CVV/OTP/card number). Treated as the upper end
+  # of "recoverable" since correcting a typo is a much lower bar than
+  # recovering from an actual decline.
+
+  instrument_blocked: 0.02
+  # A retry on a dead card. Near-zero by construction; not zero, to allow
+  # for the case where the customer independently updated their card
+  # between the failure and the retry.
+
+  issuer_declined: 0.05
+  # The bank's own policy decision (risk, limits, compliance). A same-method
+  # retry rarely changes the bank's mind; slightly above instrument_blocked
+  # since some declines are transient risk-scoring rather than permanent.
+
+  infra_outage: 0.03
+  # A link sent while the outage that caused the original failure may
+  # still be live -- control doesn't know or check.
+
+  ambiguous_verify_before_acting: 0.08
+  # Retrying a payment whose real status is unknown (timeout, duplicate,
+  # possibly-already-paid). Low, since a meaningful share of this cohort
+  # already succeeded and has nothing left to pay.
+
+  merchant_config_error: 0.02
+  # The underlying integration issue (bad order_id, invalid amount) isn't
+  # fixed by sending a link; near-zero for the same reason as
+  # instrument_blocked.
+
+  unknown: 0.15
+  # A genuinely novel failure string with no rule. Not assumed as bad as a
+  # known-dead category, but well below the recoverable cohorts, since we
+  # have no evidence it's actually fixable.
+
+# Multiplier applied on top of `immediate` for a link sent after a delay.
+# auth_abandoned is singled out because the cited research is specifically
+# about response *speed* for cart-style abandonment: "real-time triggers
+# sent within 5 minutes of abandonment push CTR to 36% versus a 9.2%
+# baseline" (ATTN Agency, "SMS Abandoned Cart Recovery", 2026) -- roughly a
+# 4x drop from immediate to non-real-time. A ~1 hour delay (the control
+# arm's fixed policy) is not as bad as "no real-time trigger at all", so a
+# partial decay is used here rather than the full ratio from that citation.
+# Other categories are not primarily time-sensitive on an hours timescale
+# (insufficient_funds is gated by when money actually arrives; a typo fix
+# doesn't go stale in an hour), so no decay is applied to them.
+delayed_1h_multiplier:
+  auth_abandoned: 0.70
+  default: 1.0
