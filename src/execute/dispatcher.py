@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from src.config import Settings
@@ -154,23 +155,32 @@ def _load_breaker(session: Session) -> BreakerSnapshot:
 
 
 def _save_breaker(session: Session, snapshot: BreakerSnapshot) -> None:
+    """An atomic upsert, not get-then-add/update: _save_breaker is called
+    twice per outbox entry (before and after the Razorpay call) inside the
+    same unflushed transaction. A plain session.get() can't see a row this
+    same transaction added moments ago but never flushed, so two calls in a
+    row would each conclude "no row exists yet" and both try to insert the
+    same primary key. This surfaced for real the first time an eval batch
+    processed more than one entry -- the mocked dispatcher tests never
+    exercised two saves in the same unflushed transaction."""
     now = datetime.now(UTC)
-    row = session.get(CircuitBreakerState, _SERVICE)
-    if row is None:
-        session.add(
-            CircuitBreakerState(
-                service=_SERVICE,
-                state=snapshot.state,
-                consecutive_failures=snapshot.consecutive_failures,
-                opened_at=snapshot.opened_at,
-                updated_at=now,
-            )
-        )
-    else:
-        row.state = snapshot.state
-        row.consecutive_failures = snapshot.consecutive_failures
-        row.opened_at = snapshot.opened_at
-        row.updated_at = now
+    stmt = pg_insert(CircuitBreakerState).values(
+        service=_SERVICE,
+        state=snapshot.state,
+        consecutive_failures=snapshot.consecutive_failures,
+        opened_at=snapshot.opened_at,
+        updated_at=now,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["service"],
+        set_={
+            "state": stmt.excluded.state,
+            "consecutive_failures": stmt.excluded.consecutive_failures,
+            "opened_at": stmt.excluded.opened_at,
+            "updated_at": stmt.excluded.updated_at,
+        },
+    )
+    session.execute(stmt)
 
 
 def _log(session: Session, row: OutboxEntry, event_type: str, payload: dict) -> None:
