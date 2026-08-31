@@ -15,10 +15,11 @@ is ever created per decision.
 notify.sms and notify.email are hard-set to false on every call. This
 project does not send real messages through any channel, including
 Razorpay's own -- see CLAUDE.md's build constraints. The "channel" a
-customer would notionally be reached on on is a label the Stage 6 payer
+customer would notionally be reached on is a label the Stage 6 payer
 simulator reasons about, never a real send.
 """
 
+import time
 from dataclasses import dataclass
 
 import httpx
@@ -57,9 +58,32 @@ class RazorpayClient:
         key_secret: str,
         base_url: str = "https://api.razorpay.com/v1",
         http_client: httpx.Client | None = None,
+        min_interval_seconds: float = 1.0,
     ) -> None:
+        """min_interval_seconds paces real calls client-side. Razorpay does
+        not publish an exact test-mode rate limit, and it's tighter than it
+        might seem: two separate real eval runs each hit a 429 after about
+        5 consecutive create-payment-link calls, even with 0.5s spacing
+        between them. This can't be dodged with certainty without a
+        published number to target -- what matters is that hitting it is
+        handled safely: the circuit breaker opens, remaining entries stay
+        untouched and pending, and a later `make dispatch` resumes them
+        once the limit window has passed. Pass 0.0 in tests -- a mocked
+        transport has nothing to rate-limit and no reason to sleep."""
         self._auth = (key_id, key_secret)
         self._client = http_client or httpx.Client(base_url=base_url, timeout=10.0)
+        self._min_interval_seconds = min_interval_seconds
+        self._last_call_at: float | None = None
+
+    def _throttle(self) -> None:
+        if self._min_interval_seconds <= 0 or self._last_call_at is None:
+            self._last_call_at = time.monotonic()
+            return
+        elapsed = time.monotonic() - self._last_call_at
+        remaining = self._min_interval_seconds - elapsed
+        if remaining > 0:
+            time.sleep(remaining)
+        self._last_call_at = time.monotonic()
 
     def create_payment_link(
         self, *, reference_id: str, amount_paise: int, order_id: str, currency: str = "INR"
@@ -114,6 +138,7 @@ class RazorpayClient:
         reraise=True,
     )
     def _post(self, path: str, payload: dict) -> dict:
+        self._throttle()
         try:
             response = self._client.post(path, json=payload, auth=self._auth)
         except httpx.TimeoutException as exc:
@@ -127,6 +152,7 @@ class RazorpayClient:
         reraise=True,
     )
     def _get(self, path: str, params: dict | None = None) -> dict:
+        self._throttle()
         try:
             response = self._client.get(path, params=params, auth=self._auth)
         except httpx.TimeoutException as exc:

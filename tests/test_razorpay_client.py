@@ -16,7 +16,14 @@ from src.execute.razorpay_client import RazorpayAPIError, RazorpayClient, Razorp
 def _client(handler) -> RazorpayClient:
     transport = httpx.MockTransport(handler)
     http_client = httpx.Client(base_url="https://api.razorpay.com/v1", transport=transport)
-    return RazorpayClient(key_id="rzp_test_fake", key_secret="fake_secret", http_client=http_client)
+    # min_interval_seconds=0.0: a mocked transport has nothing to rate-limit
+    # and no reason to make the test suite sleep.
+    return RazorpayClient(
+        key_id="rzp_test_fake",
+        key_secret="fake_secret",
+        http_client=http_client,
+        min_interval_seconds=0.0,
+    )
 
 
 def test_create_payment_link_success() -> None:
