@@ -283,6 +283,7 @@ def _upsert_payment(
                 amount_paise=payment_entity.amount,
                 currency=payment_entity.currency,
                 method=payment_entity.method,
+                payer_contact=payment_entity.contact,
                 error_code=error_code,
                 error_reason=error_reason,
                 category=category,
@@ -296,6 +297,7 @@ def _upsert_payment(
         existing.latest_payment_id = payment_entity.id
         existing.amount_paise = payment_entity.amount
         existing.method = payment_entity.method
+        existing.payer_contact = payment_entity.contact
         if classification is not None:
             existing.error_code = error_code
             existing.error_reason = error_reason

@@ -24,6 +24,8 @@ function Show-Help {
     Write-Host "  .\tasks.ps1 migrate          apply alembic migrations up to head"
     Write-Host "  .\tasks.ps1 run              run the API server on :8000"
     Write-Host "  .\tasks.ps1 dispatch         run the outbox dispatcher once"
+    Write-Host "  .\tasks.ps1 diagnose         run the long-tail LLM diagnosis pass once"
+    Write-Host "  .\tasks.ps1 detect           run the statistical degradation detector once"
     Write-Host "  .\tasks.ps1 verify-razorpay  one-off check that real .env credentials work"
     Write-Host "  .\tasks.ps1 eval             run the evaluation harness against the real Razorpay API"
     Write-Host "  .\tasks.ps1 test             run the test suite"
@@ -58,6 +60,8 @@ switch ($Task) {
     "migrate"  { alembic upgrade head }
     "run"      { uvicorn src.api.main:app --reload --port 8000 }
     "dispatch" { python scripts/run_dispatcher.py }
+    "diagnose" { python scripts/run_diagnose.py }
+    "detect"   { python scripts/run_detect.py }
     "verify-razorpay" { python scripts/verify_razorpay_connection.py }
     "eval"     { python -m eval.run_eval }
     "test"     { pytest -q }

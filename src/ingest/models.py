@@ -30,6 +30,7 @@ class Payment(Base):
     amount_paise: Mapped[int] = mapped_column(BigInteger, nullable=False)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="INR")
     method: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    payer_contact: Mapped[str | None] = mapped_column(String(32), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     category: Mapped[str | None] = mapped_column(String(48), nullable=True)

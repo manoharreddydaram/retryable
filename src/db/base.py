@@ -29,3 +29,9 @@ def get_db() -> Iterator[Session]:
         yield session
     finally:
         session.close()
+
+
+# Import every model module so Base.metadata is complete wherever this
+# module is imported -- see src/db/all_models.py. Deliberately at the
+# bottom: Base must already exist before those modules import it back.
+from src.db import all_models  # noqa: E402, F401

@@ -1,4 +1,4 @@
-.PHONY: help install db-up db-down db-logs db-shell migrate run test lint fmt clean dispatch verify-razorpay eval
+.PHONY: help install db-up db-down db-logs db-shell migrate run test lint fmt clean dispatch verify-razorpay eval diagnose detect
 
 help:
 	@echo "Retryable - developer commands"
@@ -10,6 +10,8 @@ help:
 	@echo "  make migrate          apply alembic migrations up to head"
 	@echo "  make run              run the API server on :8000"
 	@echo "  make dispatch         run the outbox dispatcher once"
+	@echo "  make diagnose         run the long-tail LLM diagnosis pass once"
+	@echo "  make detect           run the statistical degradation detector once"
 	@echo "  make verify-razorpay  one-off check that real .env credentials actually work"
 	@echo "  make eval             run the evaluation harness against the real Razorpay API"
 	@echo "  make test             run the test suite"
@@ -40,6 +42,12 @@ migrate:
 
 dispatch:
 	python scripts/run_dispatcher.py
+
+diagnose:
+	python scripts/run_diagnose.py
+
+detect:
+	python scripts/run_detect.py
 
 verify-razorpay:
 	python scripts/verify_razorpay_connection.py
