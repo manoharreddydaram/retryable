@@ -1,0 +1,39 @@
+{
+  "generated_at": "2026-08-30T21:04:07.862954+00:00",
+  "seed": 2,
+  "batch_size": 30,
+  "treatment": {
+    "revenue_at_risk_paise": 208148,
+    "attempted_sends": 1,
+    "converted_sends": 1,
+    "gross_recovered_paise": 9900,
+    "gross_recovery_rate": 1.0,
+    "wasted_attempt_rate": 0.0
+  },
+  "control": {
+    "revenue_at_risk_paise": 89100,
+    "attempted_sends": 4,
+    "converted_sends": 0,
+    "gross_recovered_paise": 0,
+    "gross_recovery_rate": 0.0,
+    "wasted_attempt_rate": 1.0
+  },
+  "incremental_lift": 1.0,
+  "incremental_lift_ci95": [
+    1.0,
+    1.0
+  ],
+  "intervention_cost_paise": 50,
+  "net_recovered_paise": 9650,
+  "cost_per_recovered_rupee": 0.025252525252525252,
+  "blocked_actions": {
+    "UNRECOVERABLE_CATEGORY": 6,
+    "QUIET_HOURS": 9,
+    "LOW_CONFIDENCE": 2
+  },
+  "unresolved_exceptions": 2,
+  "stopping_rule_violations": 0,
+  "double_charge_incidents": 0,
+  "known_reason_accuracy": 1.0,
+  "novel_string_accuracy": 1.0
+}
