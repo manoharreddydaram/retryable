@@ -18,6 +18,20 @@ most one intervention. If that intervention calls Razorpay, an outbox entry
 is written in the *same transaction* as the Decision -- see
 src/execute/outbox.py -- so the decision and the intent to act on it can
 never diverge.
+
+skip_policy=True processes classification and payment state normally but
+never invokes the policy engine -- used by Stage 6's eval harness to build
+its control arm, which needs the same real payment/classification records
+as treatment but a deliberately naive decision instead of a real one.
+
+now defaults to the real current time for live traffic, but Stage 6's eval
+harness passes each synthetic failure's own occurred_at explicitly. This
+matters for two reasons, not one: it keeps the quiet-hours gate from
+depending on what time of day you happen to run `make eval` (a batch run
+must be reproducible regardless of wall-clock time), and it keeps treatment
+and control's outbox entries on the same synthetic timeline so neither arm
+is dispatched first merely because it happened to be enqueued using a
+different clock.
 """
 
 from dataclasses import dataclass
@@ -54,9 +68,16 @@ class IngestResult:
 
 
 def ingest_webhook(
-    session: Session, *, event_id: str, raw_body: dict, settings: Settings | None = None
+    session: Session,
+    *,
+    event_id: str,
+    raw_body: dict,
+    settings: Settings | None = None,
+    skip_policy: bool = False,
+    now: datetime | None = None,
 ) -> IngestResult:
     settings = settings or get_settings()
+    now = now or datetime.now(UTC)
 
     envelope = RazorpayWebhookEnvelope.model_validate(raw_body)
     incoming_status = _SUPPORTED_EVENTS.get(envelope.event)
@@ -107,9 +128,9 @@ def ingest_webhook(
         )
 
     authorized_intervention = None
-    if classification is not None and outcome == "applied":
+    if classification is not None and outcome == "applied" and not skip_policy:
         authorized_intervention = _decide_and_enqueue(
-            session, subject_id, payment_entity, classification, settings
+            session, subject_id, payment_entity, classification, settings, now
         )
 
     ledger_extra = None
@@ -142,8 +163,8 @@ def _decide_and_enqueue(
     payment_entity: RazorpayPaymentEntity,
     classification: ClassificationResult,
     settings: Settings,
+    now: datetime,
 ) -> str:
-    now = datetime.now(UTC)
     proposal = Proposal(
         intervention=propose_default(classification.category).value, source="category_rules"
     )

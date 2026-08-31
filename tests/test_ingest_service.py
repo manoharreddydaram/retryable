@@ -6,6 +6,8 @@ payment.failed for an already-captured order must be rejected. Proven again
 at the HTTP layer in test_webhook_endpoint.py.
 """
 
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 
 from src.execute.models import OutboxEntry
@@ -13,6 +15,11 @@ from src.ingest.models import Payment, WebhookEvent
 from src.ingest.service import ingest_webhook
 from src.policy.models import Decision
 from tests.conftest import make_settings
+
+# Any test whose decision reaches the quiet-hours gate must pin `now`
+# explicitly -- ingest_webhook() defaults to real wall-clock time, and this
+# suite must pass identically regardless of what time of day it's run.
+_DAYTIME = datetime(2026, 6, 15, 14, 0, tzinfo=UTC)
 
 
 def _envelope(
@@ -160,7 +167,9 @@ def test_recovery_preserves_the_original_failure_category(db_session) -> None:
 
 def test_recoverable_failure_creates_a_decision_and_an_outbox_entry(db_session) -> None:
     body = _envelope("payment.failed", "pay_1", "order_1", "failed", error_reason="incorrect_cvv")
-    result = ingest_webhook(db_session, event_id="evt_1", raw_body=body, settings=make_settings())
+    result = ingest_webhook(
+        db_session, event_id="evt_1", raw_body=body, settings=make_settings(), now=_DAYTIME
+    )
 
     assert result.authorized_intervention == "send_payment_link"
 
@@ -211,7 +220,9 @@ def test_touch_cap_is_enforced_against_real_prior_outreach(db_session) -> None:
         error_reason="incorrect_cvv",
         contact=payer_contact,
     )
-    ingest_webhook(db_session, event_id="evt_prior", raw_body=prior_body, settings=settings)
+    ingest_webhook(
+        db_session, event_id="evt_prior", raw_body=prior_body, settings=settings, now=_DAYTIME
+    )
 
     prior_decision = db_session.execute(
         select(Decision).where(Decision.order_id == "order_prior")
@@ -231,10 +242,34 @@ def test_touch_cap_is_enforced_against_real_prior_outreach(db_session) -> None:
         error_reason="incorrect_cvv",
         contact=payer_contact,
     )
-    result = ingest_webhook(db_session, event_id="evt_new", raw_body=new_body, settings=settings)
+    result = ingest_webhook(
+        db_session, event_id="evt_new", raw_body=new_body, settings=settings, now=_DAYTIME
+    )
 
     assert result.authorized_intervention == "suppress"
     new_decision = db_session.execute(
         select(Decision).where(Decision.order_id == "order_new")
     ).scalar_one()
     assert new_decision.rule_id == "TOUCH_CAP_EXCEEDED"
+
+
+def test_skip_policy_classifies_and_persists_but_never_decides(db_session) -> None:
+    body = _envelope(
+        "payment.failed", "pay_skip", "order_skip", "failed", error_reason="insufficient_funds"
+    )
+    result = ingest_webhook(
+        db_session, event_id="evt_skip", raw_body=body, settings=make_settings(), skip_policy=True
+    )
+
+    assert result.category == "insufficient_funds"
+    assert result.authorized_intervention is None
+
+    payment = db_session.get(Payment, "order_skip")
+    assert payment.category == "insufficient_funds"
+
+    decisions = (
+        db_session.execute(select(Decision).where(Decision.order_id == "order_skip"))
+        .scalars()
+        .all()
+    )
+    assert decisions == []
