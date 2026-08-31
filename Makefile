@@ -1,4 +1,4 @@
-.PHONY: help install db-up db-down db-logs db-shell migrate run test lint fmt clean dispatch verify-razorpay
+.PHONY: help install db-up db-down db-logs db-shell migrate run test lint fmt clean dispatch verify-razorpay eval
 
 help:
 	@echo "Retryable - developer commands"
@@ -11,10 +11,11 @@ help:
 	@echo "  make run              run the API server on :8000"
 	@echo "  make dispatch         run the outbox dispatcher once"
 	@echo "  make verify-razorpay  one-off check that real .env credentials actually work"
+	@echo "  make eval             run the evaluation harness against the real Razorpay API"
 	@echo "  make test             run the test suite"
 	@echo "  make lint             lint and format check"
 	@echo ""
-	@echo "  make demo / make eval are added in Stage 6."
+	@echo "  make demo is added in Stage 10."
 
 install:
 	pip install -r requirements.txt
@@ -43,6 +44,9 @@ dispatch:
 verify-razorpay:
 	python scripts/verify_razorpay_connection.py
 
+eval:
+	python -m eval.run_eval
+
 run:
 	uvicorn src.api.main:app --reload --port 8000
 
@@ -50,11 +54,11 @@ test:
 	pytest -q
 
 lint:
-	ruff check src tests migrations scripts
-	ruff format --check src tests migrations scripts
+	ruff check src tests migrations scripts eval
+	ruff format --check src tests migrations scripts eval
 
 fmt:
-	ruff format src tests migrations scripts
+	ruff format src tests migrations scripts eval
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
