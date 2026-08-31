@@ -9,7 +9,7 @@ Covers three separate guarantees:
 import uuid
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
 from src.ledger.hashing import GENESIS_HASH
@@ -29,9 +29,22 @@ def _append(session, note: str = "x") -> LedgerEntry:
     )
 
 
-def test_first_entry_chains_to_genesis(db_session) -> None:
+def test_append_chains_to_whatever_the_ledger_s_current_last_hash_is(db_session) -> None:
+    """Not assumed to be GENESIS_HASH: this database also serves real eval
+    and dispatch runs (see conftest.py), which may have already appended
+    real entries before this test ever runs. GENESIS_HASH itself -- the
+    behaviour on a truly empty chain -- is covered independently in
+    test_hashing.py, which needs no database at all."""
+    prior_last_hash = (
+        db_session.execute(
+            select(LedgerEntry.this_hash).order_by(LedgerEntry.seq.desc()).limit(1)
+        ).scalar_one_or_none()
+        or GENESIS_HASH
+    )
+
     entry = _append(db_session)
-    assert entry.prev_hash == GENESIS_HASH
+
+    assert entry.prev_hash == prior_last_hash
     assert entry.seq is not None
 
 
@@ -43,12 +56,15 @@ def test_second_entry_chains_to_first(db_session) -> None:
 
 
 def test_verify_chain_valid_on_untouched_chain(db_session) -> None:
+    before = verify_chain(db_session)
+    assert before.valid is True  # whatever's already in this database must itself be intact
+
     for i in range(5):
         _append(db_session, f"entry-{i}")
 
     result = verify_chain(db_session)
     assert result.valid is True
-    assert result.entries_checked == 5
+    assert result.entries_checked == before.entries_checked + 5
     assert result.first_broken_seq is None
 
 
