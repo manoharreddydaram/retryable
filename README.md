@@ -80,9 +80,10 @@ something if it's specific. This is the actual boundary.
 3. **Customer message drafting** — prose only, poured into fixed templates.
 
 All three run through schema-constrained output (Pydantic, enum-only
-taxonomy), temperature 0, with the prompt version hashed and recorded against
-every diagnosis. If the model fails or returns something invalid, the system
-falls back to the deterministic classifier — never to nothing.
+taxonomy), with the prompt version hashed and recorded against every
+diagnosis. If the model fails or returns something invalid, the system falls
+back to the deterministic classifier — never to nothing. (Determinism here no
+longer comes from `temperature 0` — see the LLM layer section below for why.)
 
 ---
 
@@ -235,6 +236,95 @@ than presenting a partially-drained batch as a complete one.
 
 ---
 
+## LLM layer: long-tail diagnosis
+
+Every `unknown`-category failure — whatever Stage 3's lookup table doesn't
+recognise — is eligible for a second look from Claude, run as a separate,
+on-demand pass (`make diagnose`) rather than inline during webhook ingest:
+Razorpay expects a webhook response within 5 seconds, and an LLM round-trip
+cannot reliably fit inside that budget.
+
+The call sends Claude a small evidence bundle — the raw error text, method,
+amount, time of day, and same-error / total-failure counts drawn from the
+last 24 hours (never claimed as statistically significant; that judgment
+stays in Stage 8's detector) — and asks for exactly one thing back: a
+category from the same closed taxonomy Stage 3 uses, a confidence, a
+reasoning string, the specific evidence IDs it relied on, and one suggested
+intervention from the same five-item catalog Stage 4 uses. All of it is
+schema-constrained (`output_format=DiagnosisOutput` in
+[src/diagnose/schemas.py](src/diagnose/schemas.py)) — the model cannot name a
+category or intervention that doesn't exist, only apply a real one
+incorrectly. A cited evidence ID that wasn't actually in the bundle sent is
+rejected outright before the result is ever used. Every call, successful or
+not, is durably recorded in `diagnoses`
+([src/diagnose/models.py](src/diagnose/models.py)) with its full evidence
+bundle, prompt hash, and raw response — a failed call degrades this order
+back to `escalate_to_human` via the existing confidence-floor gate, never to
+silence.
+
+**A real finding, not an assumption:** this project's design originally
+called for `temperature 0`, written before this model generation existed.
+Verified directly against the installed SDK (`anthropic==1.2.0`):
+`messages.parse()` has no `temperature` parameter at all for Claude Opus 5 —
+passing one is rejected outright, not merely ignored. The determinism this
+project actually needs turns out to live elsewhere and never depended on it:
+the closed-enum schema, the policy engine's deterministic gates regardless of
+the model's exact wording, and an audit trail that records every call either
+way. The model's prose was always the one part that couldn't be bit-for-bit
+reproducible, and temperature 0 on the old API only ever reduced that
+variance, never removed it.
+
+A confident, citation-valid suggestion is run through the *exact same*
+`decide()` used everywhere else in this project — including designed failure
+#2. A diagnosis of `infra_outage` (correctly schema-valid) that nonetheless
+suggests `send_payment_link` (a real intervention, wrong for this category)
+is overridden to `wait` by the existing `CATEGORY_NOT_CUSTOMER_ACTIONABLE`
+rule, with both the LLM's proposal and the engine's veto recorded — proven in
+[tests/test_diagnose_service.py](tests/test_diagnose_service.py) against a
+mocked model response, no real API key required.
+
+---
+
+## Statistical degradation detection
+
+Every `make detect` pass compares two cohort shapes against their own
+tracked history: the system-wide failure rate (failures against every
+attempt in the last hour — the safety-net signal), and each taxonomy
+category's *share* of failures (this category's count against all failures
+in the window, since category is only ever set on a failed payment — there
+is no "successful infra_outage" to measure a rate against). No LLM is
+involved in either: per the AI-usage boundary above, distributional change
+is a statistics problem, and this project's own requirements name the tool
+explicitly — EWMA for the baseline, a beta-binomial significance test for
+the decision.
+
+Each cohort's baseline is an exponentially weighted moving average of its
+own recent rate — adaptive, not a fixed historical constant — persisted in
+`detector_baselines` ([src/detect/models.py](src/detect/models.py)). Every
+new window is tested against that baseline by modelling both as Beta
+distributions (the baseline as a scaled rate, the recent window as a flat
+prior updated by its own counts) and computing the exact probability that
+the recent rate is truly higher, via numerical integration
+([src/detect/significance.py](src/detect/significance.py)) rather than
+Monte Carlo — no seed, and the same four numbers always produce the same
+probability.
+
+**Designed failure #4, proven rather than assumed:** the significance test
+alone is not a safe gate on a small sample.
+[tests/test_detect_significance.py](tests/test_detect_significance.py)
+demonstrates this directly — 2 failures out of 3 attempts alone computes
+over 95% confidence against an established baseline, using nothing but
+real math and an honest prior. A hard floor of 20 observations in
+[src/detect/service.py](src/detect/service.py) runs *before* the
+significance test is ever invoked — a required, independent safeguard, not
+a redundant one, because the test genuinely cannot be trusted to reject
+that sample on its own. Every cohort's evaluation is recorded in
+`detector_runs` regardless of outcome — gated, not significant, or fired —
+so a correctly suppressed false alarm is exactly as visible afterward as
+one that actually fires.
+
+---
+
 ## Status
 
 🚧 In active development.
@@ -248,8 +338,8 @@ than presenting a partially-drained batch as a complete one.
 | 4 | Policy engine, intervention catalog, stopping rules | ✅ |
 | 5 | Razorpay execution: outbox, idempotency, breaker | ✅ |
 | 6 | Evaluation harness with randomised control arm | ✅ |
-| 7 | LLM layer: long-tail classifier + diagnosis | ⬜ |
-| 8 | Statistical degradation detector | ⬜ |
+| 7 | LLM layer: long-tail classifier + diagnosis | ✅ |
+| 8 | Statistical degradation detector | ✅ |
 | 9 | UI: triage, decision detail, audit ledger, results | ⬜ |
 | 10 | Documentation, evidence, demo | ⬜ |
 
@@ -289,7 +379,8 @@ make migrate                       # Windows: .\tasks.ps1 migrate
 | `eval/` | Batch generator, payer simulator, evaluation runner |
 | `eval/results/` | Committed evaluation output — the evidence behind every number |
 | `prompts/` | Versioned LLM prompts, hashed and recorded on each diagnosis |
-| `src/detect/` | Statistical degradation detection. No LLM, by design. |
+| `src/detect/` | Statistical degradation detection: EWMA baseline, beta-binomial test. No LLM. |
+| `src/diagnose/` | Evidence bundling, the LLM call, citation validation. Proposes only. |
 | `src/policy/` | The decision engine. The only code that may authorise spend. |
 | `src/ledger/` | Append-only, hash-chained audit log |
 | `DECISIONS.md` | Architecture decision records |

@@ -82,3 +82,46 @@ boundary.
 
 **Consequences.** Display formatting is a presentation concern only. No
 arithmetic anywhere in this codebase operates on a float amount.
+
+---
+
+## ADR-005 — Exact beta-binomial integration over a frequentist z-test
+
+**Stage:** 8 · **Status:** Accepted
+
+**Context.** The degradation detector needs to decide whether a cohort's
+recent failure rate is genuinely worse than its baseline, or just noise.
+CLAUDE.md names the tool explicitly — EWMA for the baseline, a
+beta-binomial significance test for the decision — ruling out an LLM here
+on the same grounds as detecting degradation generally: this is a
+statistics problem, not a language problem. The obvious alternative
+implementation is a two-proportion z-test using a normal approximation.
+
+**Decision.** Model the baseline as a Beta distribution (its EWMA-tracked
+rate, scaled by a fixed pseudo-sample-size standing in for how much that
+baseline is trusted) and the recent window as a second Beta distribution (a
+flat prior updated by the window's real counts). Compute
+P(recent rate > baseline rate) by exact numerical integration
+(`scipy.integrate.quad`) of one posterior's density against the other's
+CDF — not Monte Carlo sampling.
+
+**Rationale.** A normal approximation degrades exactly where this system
+needs it most: small samples and rates near 0% or 100%, which describes
+most per-category cohorts most of the time (e.g. `instrument_blocked`
+failures are a small minority of all failures under normal conditions).
+The beta-binomial comparison stays well-defined at any sample size and
+returns an exact probability rather than a p-value that leans on an
+approximation known to be shaky in the exact regime this project is
+protecting against. Choosing exact integration over Monte Carlo sampling
+removes a random seed from the decision path entirely: the same four
+numbers in always produce the same probability out, with no sampling noise
+to reason about at all.
+
+**Consequences.** `tests/test_detect_significance.py` asserts fixed
+numerical bounds rather than tolerating run-to-run variance. The test alone
+is demonstrably not sufficient to prevent false alarms on tiny samples —
+`test_tiny_sample_alone_is_not_a_safe_gate` shows 2 failures out of 3
+attempts alone producing over 95% confidence against an established
+baseline. The hard minimum-sample floor in `src/detect/service.py` is
+therefore a required, independent safeguard, not a redundant one on top of
+an already-conservative test.

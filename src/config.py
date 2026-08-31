@@ -40,6 +40,20 @@ class Settings(BaseSettings):
     circuit_breaker_failure_threshold: int = 5
     circuit_breaker_cooldown_seconds: int = 60
 
+    # Degradation detector (Stage 8) -- see src/detect/service.py.
+    detector_window_minutes: int = 60
+    # Designed failure #4: never test a sample smaller than this, regardless
+    # of how extreme it looks. See significance.py's own docstring for why
+    # the significance test alone can't be trusted to reject a tiny sample.
+    detector_min_sample_size: int = 20
+    detector_confidence_threshold: float = 0.99
+    detector_ewma_alpha: float = 0.3
+    # How many pseudo-observations of confidence the EWMA baseline is worth,
+    # when treated as a Beta prior. Fixed rather than growing with
+    # `observations` so a long-running baseline never becomes so falsely
+    # certain that ordinary noise starts looking like degradation.
+    detector_baseline_strength: float = 50.0
+
     @field_validator("razorpay_key_id")
     @classmethod
     def _key_must_be_test_mode(cls, value: str) -> str:
