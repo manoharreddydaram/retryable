@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     razorpay_webhook_secret: str = ""
 
     anthropic_api_key: str = ""
+    # claude-opus-5 is Anthropic's current top-tier model. Which model to
+    # spend real money on for a given workload is the merchant's decision,
+    # not one to hardcode -- this stays overridable via .env.
+    anthropic_model: str = "claude-opus-5"
 
     # Safety limits — enforced by the policy engine from Stage 4 onward.
     kill_switch_enabled: bool = False
