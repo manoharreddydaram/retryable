@@ -199,6 +199,42 @@ down.
 
 ---
 
+## Evaluation harness
+
+`make eval` generates a seeded synthetic batch of failed payments, splits it
+70/30 into treatment and control by a separate seeded shuffle, and runs
+*both* arms through the same real pipeline: treatment through Stage 3's
+classifier and Stage 4's policy engine, control through a fixed "retry once,
+one hour later, regardless of cause" rule that deliberately bypasses the
+policy engine entirely — the naive baseline this track's bar exists to beat.
+Both arms are then dispatched by the *same* Stage 5 dispatcher against the
+real Razorpay API, so any measured difference between them is attributable
+to the decision, not to different execution reliability underneath it.
+
+The batch's category mix is anchored, where a citation actually applies, to
+a published dunning benchmark on card-decline composition; the payer
+simulator's conversion propensities are sourced from published dunning and
+cart-abandonment recovery benchmarks, cited inline in
+[eval/propensities.yaml](eval/propensities.yaml), and blind to which arm
+triggered a send or which rule authorized it — it sees only category and
+timing. Every synthetic failure's timestamp is drawn from a fixed epoch, not
+real wall-clock time, specifically so results (including which entries fall
+inside quiet hours) are identical for a given `--seed` regardless of what
+time of day `make eval` is actually run.
+
+**A real finding, not a simulated one:** Razorpay does not publish an exact
+test-mode rate limit, and it is tighter than expected — two independent
+evaluation runs each hit an HTTP 429 after roughly five consecutive
+payment-link creations, even with client-side pacing between calls. This
+can't be reliably dodged without a published number to target, so it isn't
+treated as an error: the circuit breaker opens exactly as designed, every
+other entry due in that run is left safely pending, and a later
+`make dispatch` resumes them once the limit window has passed. `make eval`
+reports how many entries are still pending for exactly this reason, rather
+than presenting a partially-drained batch as a complete one.
+
+---
+
 ## Status
 
 🚧 In active development.
@@ -211,7 +247,7 @@ down.
 | 3 | Canonical failure taxonomy + deterministic classifier | ✅ |
 | 4 | Policy engine, intervention catalog, stopping rules | ✅ |
 | 5 | Razorpay execution: outbox, idempotency, breaker | ✅ |
-| 6 | Evaluation harness with randomised control arm | ⬜ |
+| 6 | Evaluation harness with randomised control arm | ✅ |
 | 7 | LLM layer: long-tail classifier + diagnosis | ⬜ |
 | 8 | Statistical degradation detector | ⬜ |
 | 9 | UI: triage, decision detail, audit ledger, results | ⬜ |
