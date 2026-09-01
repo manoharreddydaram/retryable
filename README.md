@@ -325,6 +325,36 @@ one that actually fires.
 
 ---
 
+## UI
+
+Four screens, no more — a full React + TypeScript + Vite single-page app in
+`web/`, over a small read-only FastAPI layer in `src/api/`
+([schemas.py](src/api/schemas.py), [triage.py](src/api/triage.py),
+[decisions.py](src/api/decisions.py), [ledger.py](src/api/ledger.py),
+[results.py](src/api/results.py)). Every one of those routes only accepts
+GET — enforced in [main.py](src/api/main.py)'s CORS policy, not just by
+convention — because this UI only ever observes the system. Every
+write-capable action still goes through
+[src/policy/engine.py](src/policy/engine.py) and
+[src/execute/outbox.py](src/execute/outbox.py), completely unchanged by
+this stage.
+
+| Screen | What it shows |
+|:--|:--|
+| **Live Triage** | Recent payments and whatever the system most recently decided about each — category, authorized intervention, whether it came from the rules table or the LLM, outbox status. Polls every 15s. |
+| **Decision Detail** | One decision's full rule trace: what was proposed, what was authorized, whether it was overridden and by which `rule_id`, plus the LLM diagnosis behind it (if any) and the exact ledger entries recorded for it. Reached by clicking a decision in Live Triage. |
+| **Audit Ledger** | The hash-chained log, paginated newest-first, each entry expandable to its full payload and hashes — with `verify_chain()` (Stage 1) run on demand, not merely asserted. |
+| **Results** | The last committed `make eval` run: incremental lift with its confidence interval, the treatment/control comparison table, wasted-attempt rate, blocked actions by rule, and the stopping-rule/double-charge invariant counts. |
+
+Run both halves side by side:
+
+```bash
+make run    # FastAPI on :8000
+make web    # Vite dev server on :5173, proxying /api/* to :8000
+```
+
+---
+
 ## Status
 
 🚧 In active development.
@@ -340,7 +370,7 @@ one that actually fires.
 | 6 | Evaluation harness with randomised control arm | ✅ |
 | 7 | LLM layer: long-tail classifier + diagnosis | ✅ |
 | 8 | Statistical degradation detector | ✅ |
-| 9 | UI: triage, decision detail, audit ledger, results | ⬜ |
+| 9 | UI: triage, decision detail, audit ledger, results | ✅ |
 | 10 | Documentation, evidence, demo | ⬜ |
 
 The LLM arrives at stage 7 of 10, deliberately. See
@@ -364,10 +394,16 @@ cp .env.example .env               # Windows: copy .env.example .env
 
 make db-up                         # Windows: .\tasks.ps1 db-up
 make migrate                       # Windows: .\tasks.ps1 migrate
+make run                           # Windows: .\tasks.ps1 run
+
+# In a second terminal, for the UI:
+make web-install                   # Windows: .\tasks.ps1 web-install (once)
+make web                           # Windows: .\tasks.ps1 web
 ```
 
 `make` is the canonical interface. Windows users can substitute
-`.\tasks.ps1 <task>` for `make <task>` throughout.
+`.\tasks.ps1 <task>` for `make <task>` throughout. The UI needs Node.js 20+
+in addition to Python 3.13.
 
 ---
 
@@ -383,6 +419,8 @@ make migrate                       # Windows: .\tasks.ps1 migrate
 | `src/diagnose/` | Evidence bundling, the LLM call, citation validation. Proposes only. |
 | `src/policy/` | The decision engine. The only code that may authorise spend. |
 | `src/ledger/` | Append-only, hash-chained audit log |
+| `src/api/` | The read API. Every route is GET — this layer never authorises anything. |
+| `web/` | The Stage 9 UI: React + TypeScript + Vite, four screens, no more |
 | `DECISIONS.md` | Architecture decision records |
 | `FAILURES.md` | What broke during the build, and how it was fixed |
 | `EVALUATION.md` | Methodology, and an honest account of what is simulated |
