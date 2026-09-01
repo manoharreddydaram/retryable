@@ -64,21 +64,34 @@ measuring against *the obvious approach* is the comparison that means something.
 | Metric | Definition |
 |:--|:--|
 | Revenue at risk | Σ amount of failed payments in the batch, in paise |
-| Gross recovery rate | recovered / at risk, treatment arm |
-| **Incremental lift** | treatment rate − control rate, with a confidence interval |
-| Net recovered | ₹ recovered − intervention cost |
+| Gross recovery rate | converted sends / attempted sends, per arm |
+| **Incremental lift** | treatment recovery rate − control recovery rate, with a 95% CI |
+| Net recovered | ₹ recovered − intervention cost, across both arms |
 | Cost per recovered rupee | total intervention cost / amount recovered |
-| **Wasted-attempt rate** | interventions on unrecoverable failures / total interventions |
-| Root-cause macro-F1 | held-out set, per-class table published |
-| Novel-string accuracy | accuracy on error strings absent from the rules table |
-| Stopping-rule violations | contacts exceeding policy caps — **must be 0** |
+| **Wasted-attempt rate** | (attempted − converted) / attempted, per arm |
+| Known-reason accuracy | accuracy on error strings the rules table has seen before |
+| Novel-string accuracy | for a genuinely novel error string, whether the classifier honestly reports `unknown` rather than guessing wrong |
+| Stopping-rule violations | payers contacted more than the touch cap allows, checked directly against executed sends — **must be 0** |
 | Blocked actions | policy vetoes, with the rule ID for each |
-| Double-charge incidents | duplicate captures — **must be 0** |
-| Unresolved exceptions | honest list of cases routed to a human |
+| Double-charge incidents | more than one completed send for the same order — **must be 0** |
+| Unresolved exceptions | escalated to a human, or permanently failed dispatch |
+| Pending, not yet dispatched | outbox entries still awaiting a dispatcher run when metrics were computed — surfaced explicitly so a partially-drained batch is never presented as fully measured |
 
 Wasted-attempt rate is the direct measurement of false-positive cost. Every
 intervention carries a rupee cost and a trust cost; a system that reports only
 gross recovery is hiding half of its own P&L.
+
+**Revised from the original plan, not silently swapped:** this section
+originally called for a root-cause macro-F1 on a held-out set. Once Stage 3's
+classifier was actually built, that turned out to be the wrong shape of
+question for it: it's a deterministic lookup table, not a probabilistic
+classifier making per-class tradeoffs, so a known error string is either
+matched correctly or it isn't — there's no precision/recall balance to
+average across classes. Known-reason accuracy and novel-string accuracy
+(implemented in [eval/metrics.py](eval/metrics.py)) are the honest replacement:
+the first is a sanity check expected at 1.0 by construction, and the second
+is the one thing worth actually grading a lookup table on — does it admit
+"unknown" for a string it has never seen, rather than guess.
 
 ---
 
@@ -102,3 +115,13 @@ Stated up front rather than extracted under questioning:
    review for weeks before being allowed to act.
 4. **Synthetic batch composition.** Cohort mix is our estimate of a mid-market
    merchant's failure profile, not an observed distribution.
+5. **`make eval` does not exercise Stage 7's LLM diagnosis path.** Every
+   synthetic `unknown`-category failure in a batch stays `unknown` for the
+   purposes of these metrics — it is never sent to Claude for a second look,
+   by design: re-diagnosis is a separate, on-demand pass
+   (`make diagnose`, see the README's LLM layer section), not part of the
+   ingest-time path `run_evaluation()` drives. The incremental-lift figure
+   above is therefore the rules-only baseline's lift, not a measurement of
+   what the LLM adds. Quantifying that would need a batch run through
+   `make diagnose` before metrics are computed — a natural extension, not
+   yet built.

@@ -357,7 +357,11 @@ make web    # Vite dev server on :5173, proxying /api/* to :8000
 
 ## Status
 
-🚧 In active development.
+All 10 stages built. Two pieces of Stage 10 are deliberately left for a
+human, not automated away: `FAILURES.md`, written from real experience
+rather than reconstructed after the fact, and the submission recording
+itself (a script is prepared in
+[docs/demo_script.md](docs/demo_script.md)).
 
 | Stage | Deliverable | Status |
 |:--|:--|:--|
@@ -371,7 +375,7 @@ make web    # Vite dev server on :5173, proxying /api/* to :8000
 | 7 | LLM layer: long-tail classifier + diagnosis | ✅ |
 | 8 | Statistical degradation detector | ✅ |
 | 9 | UI: triage, decision detail, audit ledger, results | ✅ |
-| 10 | Documentation, evidence, demo | ⬜ |
+| 10 | Documentation, evidence, demo | 🟡 README/EVALUATION.md finalised; `FAILURES.md` and the recording are the human's |
 
 The LLM arrives at stage 7 of 10, deliberately. See
 [ADR-001](DECISIONS.md#adr-001--build-the-guardrails-before-the-model).
@@ -383,7 +387,7 @@ The LLM arrives at stage 7 of 10, deliberately. See
 Requires Docker Desktop and Python 3.13.
 
 ```bash
-git clone https://github.com/<username>/retryable.git
+git clone https://github.com/manoharreddydaram/retryable.git
 cd retryable
 
 python -m venv .venv
@@ -424,6 +428,7 @@ in addition to Python 3.13.
 | `DECISIONS.md` | Architecture decision records |
 | `FAILURES.md` | What broke during the build, and how it was fixed |
 | `EVALUATION.md` | Methodology, and an honest account of what is simulated |
+| `docs/demo_script.md` | Submission-recording walkthrough, grounded in real evidence already in the database |
 
 `policies/` and `eval/` sit at the top level alongside `src/` on purpose. The
 decision rules and the evidence are first-class artifacts of this project, not
@@ -436,3 +441,4 @@ implementation details.
 - [DECISIONS.md](DECISIONS.md) — why the architecture looks like this
 - [FAILURES.md](FAILURES.md) — what broke, and how we got out
 - [EVALUATION.md](EVALUATION.md) — how the numbers were produced
+- [docs/demo_script.md](docs/demo_script.md) — walkthrough for the submission recording
