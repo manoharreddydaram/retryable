@@ -91,8 +91,8 @@ arithmetic anywhere in this codebase operates on a float amount.
 
 **Context.** The degradation detector needs to decide whether a cohort's
 recent failure rate is genuinely worse than its baseline, or just noise.
-CLAUDE.md names the tool explicitly — EWMA for the baseline, a
-beta-binomial significance test for the decision — ruling out an LLM here
+This project's own requirements name the tool explicitly — EWMA for the
+baseline, a beta-binomial significance test for the decision — ruling out an LLM here
 on the same grounds as detecting degradation generally: this is a
 statistics problem, not a language problem. The obvious alternative
 implementation is a two-proportion z-test using a normal approximation.

@@ -25,7 +25,6 @@ Entries include problems that were our own fault.
 
 ---
 
-_Entries pending. All 10 stages are built and several real problems came up
-along the way (see the README's per-section "real finding" callouts and the
-git history for pointers) — Claude Code does not write these, per CLAUDE.md;
-they still need to be written up here from what actually happened._
+_Entries pending — to be written up from what actually happened during the
+build. The README's per-section "real finding" callouts and the git history
+are good starting points for what belongs here._

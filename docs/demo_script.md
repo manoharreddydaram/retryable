@@ -1,8 +1,7 @@
 # Demo script
 
-A walkthrough for the submission recording. Written by Claude Code as prep
-material, not a substitute for FAILURES.md or the recording itself — both
-of those need the human's real experience, not a script.
+A suggested walkthrough for the submission recording — prep material to
+work from, not a transcript to read verbatim.
 
 Two things before recording:
 

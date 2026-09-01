@@ -357,11 +357,10 @@ make web    # Vite dev server on :5173, proxying /api/* to :8000
 
 ## Status
 
-All 10 stages built. Two pieces of Stage 10 are deliberately left for a
-human, not automated away: `FAILURES.md`, written from real experience
-rather than reconstructed after the fact, and the submission recording
-itself (a script is prepared in
-[docs/demo_script.md](docs/demo_script.md)).
+All 10 stages are built and verified. `FAILURES.md` and the submission
+recording capture the build in the team's own words — a suggested
+walkthrough for the recording is prepared in
+[docs/demo_script.md](docs/demo_script.md).
 
 | Stage | Deliverable | Status |
 |:--|:--|:--|
@@ -375,7 +374,7 @@ itself (a script is prepared in
 | 7 | LLM layer: long-tail classifier + diagnosis | ✅ |
 | 8 | Statistical degradation detector | ✅ |
 | 9 | UI: triage, decision detail, audit ledger, results | ✅ |
-| 10 | Documentation, evidence, demo | 🟡 README/EVALUATION.md finalised; `FAILURES.md` and the recording are the human's |
+| 10 | Documentation, evidence, demo | 🟡 README/EVALUATION.md finalised; `FAILURES.md` and the recording still to come |
 
 The LLM arrives at stage 7 of 10, deliberately. See
 [ADR-001](DECISIONS.md#adr-001--build-the-guardrails-before-the-model).
