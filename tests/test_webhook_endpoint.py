@@ -1,8 +1,9 @@
 """End-to-end tests through the real HTTP endpoint, signature check included.
 
-The `client` fixture points the FastAPI app's DB dependency at the same
-savepoint-backed session tests/conftest.py provides, so these requests never
-touch data outside this test.
+The `client` fixture layers webhook-secret setup on top of conftest.py's
+shared `api_client` fixture, which points the FastAPI app's DB dependency at
+the same savepoint-backed session tests/conftest.py provides, so these
+requests never touch data outside this test.
 """
 
 import hashlib
@@ -10,11 +11,8 @@ import hmac
 import json
 
 import pytest
-from fastapi.testclient import TestClient
 
-from src.api.main import app
 from src.config import get_settings
-from src.db.base import get_db
 
 SECRET = "whsec_test_endpoint"
 
@@ -47,16 +45,10 @@ def _payload(event: str, payment_id: str, order_id: str, status: str) -> bytes:
 
 
 @pytest.fixture()
-def client(db_session, monkeypatch):
+def client(api_client, monkeypatch):
     monkeypatch.setenv("RAZORPAY_WEBHOOK_SECRET", SECRET)
     get_settings.cache_clear()
-
-    def _override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = _override_get_db
-    yield TestClient(app)
-    app.dependency_overrides.clear()
+    yield api_client
     get_settings.cache_clear()
 
 

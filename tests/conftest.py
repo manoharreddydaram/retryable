@@ -9,10 +9,12 @@ uses, not a throwaway database.
 """
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
+from src.api.main import app
 from src.config import Settings
-from src.db.base import engine
+from src.db.base import engine, get_db
 
 
 @pytest.fixture()
@@ -27,6 +29,22 @@ def db_session():
     session.close()
     transaction.rollback()
     connection.close()
+
+
+@pytest.fixture()
+def api_client(db_session):
+    """A TestClient wired to the same savepoint-backed session db_session
+    provides, via FastAPI's dependency-override mechanism, so requests made
+    through it never touch data outside this test. Tests needing extra
+    per-request setup (env vars, settings) should layer their own fixture
+    on top of this one rather than rebuilding the override wiring."""
+
+    def _override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = _override_get_db
+    yield TestClient(app)
+    app.dependency_overrides.clear()
 
 
 def make_settings(**overrides) -> Settings:
