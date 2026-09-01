@@ -18,11 +18,13 @@ function Show-Help {
     Write-Host "Retryable - developer commands" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  .\tasks.ps1 install    install python dependencies"
+    Write-Host "  .\tasks.ps1 web-install      install frontend dependencies (web/)"
     Write-Host "  .\tasks.ps1 db-up      start postgres and wait until healthy"
     Write-Host "  .\tasks.ps1 db-down    stop postgres (data preserved)"
     Write-Host "  .\tasks.ps1 db-shell         open a psql prompt"
     Write-Host "  .\tasks.ps1 migrate          apply alembic migrations up to head"
     Write-Host "  .\tasks.ps1 run              run the API server on :8000"
+    Write-Host "  .\tasks.ps1 web              run the UI dev server on :5173 (needs run alongside)"
     Write-Host "  .\tasks.ps1 dispatch         run the outbox dispatcher once"
     Write-Host "  .\tasks.ps1 diagnose         run the long-tail LLM diagnosis pass once"
     Write-Host "  .\tasks.ps1 detect           run the statistical degradation detector once"
@@ -37,6 +39,7 @@ function Show-Help {
 
 switch ($Task) {
     "install" { pip install -r requirements.txt }
+    "web-install" { Push-Location web; npm install; Pop-Location }
 
     "db-up" {
         docker compose up -d db
@@ -59,6 +62,7 @@ switch ($Task) {
     "db-shell" { docker compose exec db psql -U retryable -d retryable }
     "migrate"  { alembic upgrade head }
     "run"      { uvicorn src.api.main:app --reload --port 8000 }
+    "web"      { Push-Location web; npm run dev; Pop-Location }
     "dispatch" { python scripts/run_dispatcher.py }
     "diagnose" { python scripts/run_diagnose.py }
     "detect"   { python scripts/run_detect.py }

@@ -1,14 +1,16 @@
-.PHONY: help install db-up db-down db-logs db-shell migrate run test lint fmt clean dispatch verify-razorpay eval diagnose detect
+.PHONY: help install web-install db-up db-down db-logs db-shell migrate run web test lint fmt clean dispatch verify-razorpay eval diagnose detect
 
 help:
 	@echo "Retryable - developer commands"
 	@echo ""
 	@echo "  make install          install python dependencies"
+	@echo "  make web-install      install frontend dependencies (web/)"
 	@echo "  make db-up            start postgres and block until it is healthy"
 	@echo "  make db-down          stop postgres (data is preserved in the volume)"
 	@echo "  make db-shell         open a psql prompt against the running database"
 	@echo "  make migrate          apply alembic migrations up to head"
 	@echo "  make run              run the API server on :8000"
+	@echo "  make web              run the UI dev server on :5173 (needs make run alongside)"
 	@echo "  make dispatch         run the outbox dispatcher once"
 	@echo "  make diagnose         run the long-tail LLM diagnosis pass once"
 	@echo "  make detect           run the statistical degradation detector once"
@@ -21,6 +23,9 @@ help:
 
 install:
 	pip install -r requirements.txt
+
+web-install:
+	cd web && npm install
 
 db-up:
 	docker compose up -d db
@@ -57,6 +62,9 @@ eval:
 
 run:
 	uvicorn src.api.main:app --reload --port 8000
+
+web:
+	cd web && npm run dev
 
 test:
 	pytest -q
